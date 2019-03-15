@@ -1,0 +1,570 @@
+---
+title: "Homework 2"
+author: "Carys Quezada, Devin Steinhauser, Kaydee Hartmann, & Meri Oshrain"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    self_contained: no
+runtime: shiny
+---
+
+NOTE: This document is an interactive document. You will be able to hover over graphs to see details and click to different sections in the floating  Table of Contents towards the left hand side. 
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(shiny)
+library(plotly)
+library(shinydashboard)
+library(mosaic)
+library(FNN)
+library(foreach)
+library(class)
+library(plyr)
+library(gridExtra)
+library(grid)
+library(bayesplot)
+library(caret)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Saratoga House Prices
+
+## Linear model
+
+```{r, echo = FALSE, results = 'asis'}
+
+data(SaratogaHouses)
+
+rmse = function(y, yhat) {
+  sqrt(data.matrix(mean( (y - yhat)^2 ) ))
+}
+n = nrow(SaratogaHouses)
+
+rmse_vals = do(100)*{
+  
+  n_train = round(0.8*n) 
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  saratoga_train = SaratogaHouses[train_cases,]
+  saratoga_test = SaratogaHouses[test_cases,]
+  
+  # medium model
+  lm2 = lm(price ~ . - sewer - waterfront - landValue - newConstruction, data=saratoga_train)
+  
+  # our model
+  lm_biggerboom = lm(price ~ lotSize + landValue + waterfront + newConstruction + bedrooms*bathrooms + heating + fuel + pctCollege + rooms*bedrooms + rooms*bathrooms + rooms*heating + livingArea + newConstruction + centralAir, data=saratoga_train)
+  
+  yhat_test2 = predict(lm2, saratoga_test)
+  yhat_testbiggerboom = predict(lm_biggerboom, saratoga_test)
+  c(rmse(saratoga_test$price, yhat_test2),
+    rmse(saratoga_test$price, yhat_testbiggerboom))
+}
+
+rmse_means = colMeans(rmse_vals)
+rmse_mean_med = as.character(format(round(rmse_means[[1]],2),big.mark = ','))
+rmse_mean_best = as.character(format(round(rmse_means[[2]],2),big.mark = ','))
+```
+- The medium model RMSE is `r rmse_mean_med`
+
+- The RMSE for this model is `r rmse_mean_best`
+
+After working with the original medium model, a new linear model was created that overall did a more efficient job calculating house prices given the variables. Unlike the first model, this one included if a a house was newly constructed and if it had a waterfront view, in addition to studying the effects that heating, fuel, lot size, land value, living area availability, and number of bathrooms it held. In addition, it accounted for the interaction effects between the number of bedrooms and the amount of bathrooms, the number of rooms and the amount of bathrooms, and the number of rooms and if the house had heating. These interaction effects are helpful in the analysis, as some variables interact with one another simultaneously. For example, a house with several bathrooms is likely to have more bedrooms than a house with only one bathroom, and so forth.
+
+The root mean squared error of the adjusted linear model was significantly lower than the value for the original model, a difference from `r rmse_mean_med` to `r rmse_mean_best`. This value measures the prediction error by the amount of variation in the residuals, or essentially how concentrated the data is from the best line of fit. Thus, in terms of linear models, the adjusted model fits the data better and has a smaller prediction error.
+
+## KNN
+
+```{r, echo = FALSE, results = 'asis'}
+SaratogaDummy = data.frame(SaratogaHouses)
+
+SaratogaDummy$waterfront = as.numeric(SaratogaHouses$waterfront == "Yes")
+SaratogaDummy$newConstruction = as.numeric(SaratogaHouses$newConstruction == "Yes")
+SaratogaDummy$centralAir = as.numeric(SaratogaHouses$centralAir == "Yes")
+
+SaratogaDummy$heatElectric = as.numeric(SaratogaHouses$heating == "electric")
+SaratogaDummy$heatHotWater = as.numeric(SaratogaHouses$heating == "hot water/steam")
+SaratogaDummy$heatHotAir = as.numeric(SaratogaHouses$heating == "hot air")
+
+SaratogaDummy$fuelElectric = as.numeric(SaratogaHouses$fuel == "electric")
+SaratogaDummy$fuelGas = as.numeric(SaratogaHouses$fuel == "gas")
+SaratogaDummy$fuelOil = as.numeric(SaratogaHouses$fuel == "oil")
+
+SaratogaDummy$sewerSeptic = as.numeric(SaratogaHouses$sewer == "septic")
+SaratogaDummy$sewerNone = as.numeric(SaratogaHouses$sewer == "none")
+SaratogaDummy$sewerPublic = as.numeric(SaratogaHouses$sewer == "public/commercial")
+
+drops <- c("sewer","fuel", "heating")
+SaratogaDummy = SaratogaDummy[ , !(names(SaratogaDummy) %in% drops)]
+
+rmse = function(y, yhat) {
+  sqrt((mean( (y - yhat)^2 ) ))
+}
+
+X = dplyr::select(SaratogaDummy, lotSize, landValue, waterfront, newConstruction, bedrooms, bathrooms, heatHotWater, heatHotAir, heatElectric, fuelElectric, fuelOil, fuelGas,pctCollege, rooms, livingArea, newConstruction, centralAir) 
+
+y = SaratogaHouses$price
+n = length(y)
+n_train = round(0.8*n)
+n_test = n - n_train
+
+k_grid = seq(1, 100, by=4)
+rmse_grid = foreach(k = k_grid,  .combine='c') %do% {
+  out = do(100)*{
+    train_ind = sample.int(n, n_train)
+    X_train = X[train_ind,]
+    X_test = X[-train_ind,]
+    y_train = y[train_ind]
+    y_test = y[-train_ind]
+    
+    # How to scale non-numerical variables???
+    scale_factors = apply(X_train, 2, sd)
+    X_train_sc = scale(X_train, scale=scale_factors)
+    
+    X_test_sc = scale(X_test, scale=scale_factors)
+    
+    knn_try = knn.reg(train=X_train_sc, test= X_test_sc, y =y_train, k=k)
+    ypred_knn = knn_try$pred
+
+    rmse(y_test, ypred_knn)
+  } 
+  mean(out$result)
+}
+
+min_rmse = as.character(format(round(min(rmse_grid),2),big.mark = ','))
+elem_min_rmse = which(rmse_grid == min(rmse_grid))
+k_min_rmse = as.character(k_grid[elem_min_rmse])
+
+renderPlotly(ggplot() + geom_point(mapping=aes(x=k_grid, y=rmse_grid), color = 'steelblue') + labs(title="RMSE for Values of K", y = "RMSE", x = "K"))
+  
+```
+- K equal to `r k_min_rmse` has the lowest RMSE of `r min_rmse`
+
+KNN, a non-parametric method that classifies new cases based on a similarity measure from previously available cases, is another possible approach at attempting to model the data. In this instance, however, KNN is unable to model the data as accurately as the newly updated linear model. The root mean squared error is slightly higher, at an estimated value of `r min_rmse`. While no relationship between the independent variables and dependent variables are perfectly linear, it is possible that the data is more apt to follow a linear model than a non-parametric one. For example, the optimal value of K is dependent on the variation among surrounding data points. If this variance is quite large, then the estimated value is likely to be further away from the true data point, resulting in a higher variance than if the data points were close to one another. The optimal K-value for the KNN model is `r k_min_rmse`, which is represented in the chart above.
+
+
+# A Hospital Audit
+```{r, include=FALSE}
+library(ggplot2)
+library(caret)
+library(apsrtable)
+library(memisc)
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Part One
+``` {r, echo = FALSE}
+brca = read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/brca.csv")
+
+brca2 = brca
+
+##thank you david garrett for this blessed line of code##
+drop <- c("radiologist")
+brcadrop = brca2[,!(names(brca2) %in% drop)]
+######
+
+
+
+brca$falsepositive <- ifelse(brca$cancer == 0 & brca$recall == 1, 1, 0)
+brca$falsenegative <- ifelse(brca$cancer == 1 & brca$recall == 0, 1, 0)
+
+brca$truepositive <- ifelse(brca$cancer == 1 & brca$recall == 1, 1, 0)
+brca$truenegative <- ifelse(brca$cancer == 0 & brca$recall == 0, 1, 0)
+
+brca$Radiologist13 <- ifelse(brca$radiologist == "radiologist13", 1, 0)
+brca$Radiologist34 <- ifelse(brca$radiologist == "radiologist34", 1, 0)
+brca$Radiologist66 <- ifelse(brca$radiologist == "radiologist66", 1, 0)
+brca$Radiologist89 <- ifelse(brca$radiologist == "radiologist89", 1, 0)
+brca$Radiologist95 <- ifelse(brca$radiologist == "radiologist95", 1, 0)
+
+fpr13 <- mean(brca$falsepositive | brca$radiologist=="radiologist13")
+fnr13 <- mean(brca$falsenegative | brca$radiologist=="radiologist13")
+
+fpr34 <- mean(brca$falsepositive | brca$radiologist=="radiologist34")
+fnr34 <- mean(brca$falsenegative | brca$radiologist=="radiologist34")
+
+fpr66 <- mean(brca$falsepositive | brca$radiologist=="radiologist66")
+fnr66 <- mean(brca$falsenegative | brca$radiologist=="radiologist66")
+
+fpr89 <- mean(brca$falsepositive | brca$radiologist=="radiologist89")
+fnr89 <- mean(brca$falsenegative | brca$radiologist=="radiologist89")
+
+fpr95 <- mean(brca$falsepositive | brca$radiologist=="radiologist95")
+fnr95 <- mean(brca$falsenegative | brca$radiologist=="radiologist95")
+
+ listfpr = c(fpr13, fpr34, fpr66, fpr89, fpr95)
+ listfnr = c(fnr13, fnr34, fnr66, fnr89, fnr95)
+
+pr = data.frame(radio = c("radio13", "radio34", "radio66", "radio89", "radio95"), fpr = listfpr, fnr = listfnr)
+
+renderPlotly(ggplot() + geom_point(mapping=aes(x=pr$radio, y=pr$fpr), color = 'steelblue') + labs(title="False Positive Rate by Radiologist", y = "False Positive Rate", x = "Radiologist"))
+```
+Overall, Radiologist 34 has the highest false positive rate, followed by radiologist 95, then radiologist 13, then radiologist 66, and finally radiologist 89 has the lowest false positive rate.
+``` {r, echo = FALSE}
+renderPlotly(ggplot() + geom_point(mapping=aes(x=pr$radio, y=pr$fnr), color = 'steelblue') + labs(title="False Negative Rate by Radiologist", y = "False Negative Rate", x = "Radiologist"))
+```
+However, radiologist 89 and radiologist 95 both have very high false negative rates, while radiologist 13, radiologist 34, and radiologist 66 all have very low false negative rates.
+
+Our radiologists do not all see the same patients with the same level of risks, so we want to look at the false positive rates and false negative rates of both low risk and high risk patients. Low risk patients are defined by having no symptoms and no family history of breast cancer. High risk patients are defined by having symptoms and a family history of breast cancer. 
+``` {r, echo = FALSE}
+
+brca$lowrisk <- ifelse(brca$symptoms == 0 & brca$history == 0, 1, 0)
+brca$highrisk <- ifelse(brca$symptoms == 1 & brca$history == 1, 1, 0)
+
+lrfpr13 <- mean(brca$falsepositive | brca$lowrisk == 1 | brca$radiologist=="radiologist13")
+lrfnr13 <- mean(brca$falsenegative | brca$lowrisk == 1 | brca$radiologist=="radiologist13")
+
+lrfpr34 <- mean(brca$falsepositive | brca$lowrisk == 1 | brca$radiologist=="radiologist34")
+lrfnr34 <- mean(brca$falsenegative | brca$lowrisk == 1 | brca$radiologist=="radiologist34")
+
+lrfpr66 <- mean(brca$falsepositive | brca$lowrisk== 1 | brca$radiologist=="radiologist66")
+lrfnr66 <- mean(brca$falsenegative | brca$lowrisk == 1 | brca$radiologist=="radiologist66")
+
+lrfpr89 <- mean(brca$falsepositive | brca$lowrisk== 1 | brca$radiologist=="radiologist89")
+lrfnr89 <- mean(brca$falsenegative | brca$lowrisk== 1| brca$radiologist=="radiologist89")
+
+lrfpr95 <- mean(brca$falsepositive | brca$lowrisk == 1| brca$radiologist=="radiologist95")
+lrfnr95 <- mean(brca$falsenegative | brca$lowrisk== 1 | brca$radiologist=="radiologist95")
+
+hrfpr13 <- mean(brca$falsepositive | brca$highrisk == 1| brca$radiologist=="radiologist13")
+hrfnr13 <- mean(brca$falsenegative | brca$highrisk == 1 | brca$radiologist=="radiologist13")
+
+hrfpr34 <- mean(brca$falsepositive | brca$highrisk== 1 | brca$radiologist=="radiologist34")
+hrfnr34 <- mean(brca$falsenegative | brca$highrisk == 1| brca$radiologist=="radiologist34")
+
+hrfpr66 <- mean(brca$falsepositive | brca$highrisk == 1| brca$radiologist=="radiologist66")
+hrfnr66 <- mean(brca$falsenegative | brca$highrisk == 1| brca$radiologist=="radiologist66")
+
+hrfpr89 <- mean(brca$falsepositive | brca$highrisk == 1| brca$radiologist=="radiologist89")
+hrfnr89 <- mean(brca$falsenegative | brca$highrisk == 1| brca$radiologist=="radiologist89")
+
+hrfpr95 <- mean(brca$falsepositive | brca$highrisk == 1| brca$radiologist=="radiologist95")
+hrfnr95 <- mean(brca$falsenegative | brca$highrisk == 1| brca$radiologist=="radiologist95")
+##
+
+brca$lrfpr_13 <- ifelse(brca$falsepositive ==1 & brca$lowrisk == 1 & brca$radiologist=="radiologist13", 1, 0)
+brca$lrfnr_13 <- ifelse(brca$falsenegative ==1 & brca$lowrisk == 1 & brca$radiologist=="radiologist13", 1, 0)
+
+brca$lrfpr_34 <- ifelse(brca$falsepositive ==1 & brca$lowrisk == 1 & brca$radiologist=="radiologist34", 1, 0)
+brca$lrfnr_34 <- ifelse(brca$falsenegative ==1 & brca$lowrisk == 1 & brca$radiologist=="radiologist34", 1, 0)
+
+brca$lrfpr_66 <- ifelse(brca$falsepositive ==1 & brca$lowrisk== 1 & brca$radiologist=="radiologist66", 1, 0)
+brca$lrfnr_66 <- ifelse(brca$falsenegative ==1 & brca$lowrisk == 1 & brca$radiologist=="radiologist66", 1, 0)
+
+brca$lrfpr_89 <- ifelse(brca$falsepositive ==1 & brca$lowrisk== 1 & brca$radiologist=="radiologist89", 1, 0)
+brca$lrfnr_89 <- ifelse(brca$falsenegative ==1 & brca$lowrisk== 1 & brca$radiologist=="radiologist89", 1, 0)
+
+brca$lrfpr_95 <- ifelse(brca$falsepositive ==1 & brca$lowrisk == 1 & brca$radiologist=="radiologist95", 1, 0)
+brca$lrfnr_95 <- ifelse(brca$falsenegative ==1 & brca$lowrisk== 1 & brca$radiologist=="radiologist95", 1, 0)
+
+brca$hrfpr_13 <- ifelse(brca$falsepositive ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist13", 1, 0)
+brca$hrfnr_13 <- ifelse(brca$falsenegative ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist13", 1, 0)
+
+brca$hrfpr_34 <- ifelse(brca$falsepositive ==1 & brca$highrisk== 1 & brca$radiologist=="radiologist34", 1, 0)
+brca$hrfnr_34 <- ifelse(brca$falsenegative ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist34", 1, 0)
+
+brca$hrfpr_66 <- ifelse(brca$falsepositive ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist66", 1, 0)
+brca$hrfnr_66 <- ifelse(brca$falsenegative ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist66", 1, 0)
+
+brca$hrfpr_89 <- ifelse(brca$falsepositive ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist89", 1, 0)
+brca$hrfnr_89 <- ifelse(brca$falsenegative ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist89", 1, 0)
+
+brca$hrfpr_95 <- ifelse(brca$falsepositive ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist95", 1, 0)
+brca$hrfnr_95 <- ifelse(brca$falsenegative ==1 & brca$highrisk == 1 & brca$radiologist=="radiologist95", 1, 0)
+
+
+###
+brca$fpr13 <- ifelse(brca$falsepositive==1 &  brca$radiologist=="radiologist13", 1, 0)
+brca$fnr13 <- ifelse(brca$falsenegative==1 &  brca$radiologist=="radiologist13", 1, 0)
+brca$tpr13 <- ifelse(brca$truepositive==1 &  brca$radiologist=="radiologist13", 1, 0)
+brca$tnr13 <- ifelse(brca$truenegative==1 &  brca$radiologist=="radiologist13", 1, 0)
+
+brca$fpr34 <- ifelse(brca$falsepositive==1 &  brca$radiologist=="radiologist34", 1, 0)
+brca$fnr34 <- ifelse(brca$falsenegative==1 &  brca$radiologist=="radiologist34", 1, 0)
+brca$tpr34 <- ifelse(brca$truepositive==1 &  brca$radiologist=="radiologist34", 1, 0)
+brca$tnr34 <- ifelse(brca$truenegative==1 &  brca$radiologist=="radiologist34", 1, 0)
+
+brca$fpr66 <- ifelse(brca$falsepositive==1 &  brca$radiologist=="radiologist66", 1, 0)
+brca$fnr66 <- ifelse(brca$falsenegative==1 &  brca$radiologist=="radiologist66", 1, 0)
+brca$tpr66 <- ifelse(brca$truepositive==1 &  brca$radiologist=="radiologist66", 1, 0)
+brca$tnr66 <- ifelse(brca$truenegative==1 &  brca$radiologist=="radiologist66", 1, 0)
+
+brca$fpr89 <- ifelse(brca$falsepositive==1 &  brca$radiologist=="radiologist89", 1, 0)
+brca$fnr89 <- ifelse(brca$falsenegative==1 &  brca$radiologist=="radiologist89", 1, 0)
+brca$tpr89 <- ifelse(brca$truepositive==1 &  brca$radiologist=="radiologist89", 1, 0)
+brca$tnr89 <- ifelse(brca$truenegative==1 &  brca$radiologist=="radiologist89", 1, 0)
+
+brca$fpr95 <- ifelse(brca$falsepositive==1 &  brca$radiologist=="radiologist95", 1, 0)
+brca$fnr95 <- ifelse(brca$falsenegative==1 &  brca$radiologist=="radiologist95", 1, 0)
+brca$tpr95 <- ifelse(brca$truepositive==1 &  brca$radiologist=="radiologist95", 1, 0)
+brca$tnr95 <- ifelse(brca$truenegative==1 &  brca$radiologist=="radiologist95", 1, 0)
+
+
+###
+
+
+ listlrfpr = c(lrfpr13, lrfpr34, lrfpr66, lrfpr89, lrfpr95)
+ listlrfnr = c(lrfnr13, lrfnr34, lrfnr66, lrfnr89, lrfnr95)
+ 
+ lowrisk = data.frame(radio = c("radio13", "radio34", "radio66", "radio89", "radio95"), lrfpr = listlrfpr, lrfnr = listlrfnr)
+```
+
+``` {r, echo = FALSE}
+renderPlotly(ggplot() + geom_point(mapping=aes(x=lowrisk$radio, y=lowrisk$lrfpr), color = 'steelblue') + labs(title="False Positive Rate for Low-Risk Patients by Radiologist", y = "False Positive Rate", x = "Radiologist")) 
+#plot(lowrisk$radio, lowrisk$lrfpr, main="False Positive Rate for Low-Risk Patients")
+```
+
+For low-risk patients, radiologist 34 still has the greatest false positive rate, meaning that radiologist 34 is very conservative, even with low-risk patients. The order continues with radiologist 66, then radiologist 95, then radiologist 13, and finally radiologist 89. 
+``` {r, echo = FALSE}
+renderPlotly(ggplot() + geom_point(mapping=aes(x=lowrisk$radio, y=lowrisk$lrfnr), color = 'steelblue') + labs(title="False Negative Rate for Low-Risk Patients by Radiologist", y = "False Negative Rate", x = "Radiologist")) 
+#plot(lowrisk$radio, lowrisk$lrfnr, main="False Negative Rate for Low-Risk Patients")
+```
+As far as false negatives go for low-risk, radiologist 95 has the highest rate, followed by radiologist 66, then radiologist 34, then radiologist 13, and lastly radiologist 89.
+``` {r, echo = FALSE}
+ listhrfpr = c(hrfpr13, hrfpr34, hrfpr66, hrfpr89, hrfpr95)
+ listhrfnr = c(hrfnr13, hrfnr34, hrfnr66, hrfnr89, hrfnr95)
+ 
+highrisk = data.frame(radio = c("radio13", "radio34", "radio66", "radio89", "radio95"), hrfpr = listhrfpr, hrfnr = listhrfnr)
+```
+
+``` {r, echo = FALSE}
+renderPlotly(ggplot() + geom_point(mapping=aes(x=highrisk$radio, y=highrisk$hrfpr), color = 'steelblue') + labs(title="False Positive Rate for High-Risk Patients by Radiologist", y = "False Positive Rate", x = "Radiologist")) 
+#plot(highrisk$radio, highrisk$hrfpr, main="False Positive Rate for High-Risk Patients")
+```
+For high-risk patients, radiologist 34 has the highest rate of false positive rates, followed by radiologist 95, then radiologist 13, then radiologist 89, and lastly radiologist 66. 
+``` {r, echo = FALSE}
+renderPlotly(ggplot() + geom_point(mapping=aes(x=highrisk$radio, y=highrisk$hrfnr), color = 'steelblue') + labs(title="False Negative Rate for High-Risk Patients by Radiologist", y = "False Negative Rate", x = "Radiologist"))
+#plot(highrisk$radio, highrisk$hrfnr, main="False Negative Rate for High-Risk Patients")
+```
+As far as the false negative rate goes for high-risk, radiologist 89 has the highest rate, followed by radiologist 13, then radiologist 95, and lastly radiologist 34 and radiologist 66.
+``` {r, echo = FALSE}
+logit_lr_fp13 = glm(brca$fpr13 ~ brca$lowrisk, family=binomial)
+logit_hr_fp13 = glm(brca$fpr13 ~ brca$highrisk, family=binomial)
+
+logit_lr_fp34 = glm(brca$fpr34 ~ brca$lowrisk, family=binomial)
+logit_hr_fp34 = glm(brca$fpr34 ~ brca$highrisk, family=binomial)
+
+
+logit_lr_fp66 = glm(brca$fpr66 ~ brca$lowrisk, family=binomial)
+logit_hr_fp66 = glm(brca$fpr66 ~ brca$highrisk, family=binomial)
+
+logit_lr_fp89 = glm(brca$fpr89 ~ brca$lowrisk, family=binomial)
+logit_hr_fp89 = glm(brca$fpr89 ~ brca$highrisk, family=binomial)
+
+logit_lr_fp95 = glm(brca$fpr95 ~ brca$lowrisk, family=binomial)
+logit_hr_fp95 = glm(brca$fpr95 ~ brca$highrisk, family=binomial)
+
+mtablelr <- mtable("Low Risk 13"=logit_lr_fp13, "Low Risk 34"=logit_lr_fp34, "Low Risk 66"=logit_lr_fp66, "Low Risk 89"=logit_lr_fp89, "Low Risk 95"=logit_lr_fp95,
+                   summary.stats=c("R-squared", "p"))
+
+mtablehr <- mtable("High Risk 13"=logit_hr_fp13, "High Risk 34"=logit_hr_fp34, "High Risk 66"=logit_hr_fp66, "High Risk 89"=logit_hr_fp89, "High Risk 95"=logit_hr_fp95,
+                   summary.stats=c("R-squared", "p"))
+
+mtablelr
+mtablehr
+```
+
+False positive rates primarily give us how conservative a radiologist is. Therefore, Radiologist 34 is the most conservative out of the rest of the radiologists.
+
+From the GLM model above, all of the intercepts are statistically significant, and for radiologist 95, both their intercept as well as the slope/effect of risk, is significant, for both low-risk and high-risk patients. 
+
+## Part Two
+
+```{r, echo = FALSE}
+
+modelcancer = glm(cancer ~ age + history + symptoms + menopause + density, data=brcadrop, family=binomial)
+
+modelrecall = glm(recall ~ age + history + symptoms + menopause + density, data=brcadrop, family=binomial)
+
+parttwo <- mtable("Cancer"=modelcancer, "Recall"=modelrecall,
+                  summary.stats = c("p"))
+
+parttwo
+
+
+```
+
+Here, the GLM model of the recall rate shows which factors the radiologists take into account when deciding to recall a patient. It appears that the largest factors are symptoms, premenopause, and density of the breast. However, when looking at the glm model for which factors actually have an effect when looking at the cancer rate, the factors that they should be considering MORE than they already are are age 50-59, age 60-60, age 70+, history, post-menopause, and density 4. In both of these models, the intercepts, and density 4 are statistically significant. 
+
+# Predicting When Articles Go Viral
+## Estimating a Model and Then Thresholding 
+```{r, echo = FALSE}
+library(tidyverse)
+library(mosaic)
+onlinenews <- read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/online_news.csv")
+n = nrow(onlinenews)
+
+
+lm1 = lm(shares ~ n_tokens_title*n_tokens_content + num_hrefs*num_self_hrefs + num_imgs*num_videos + average_token_length + num_keywords + self_reference_avg_sharess + avg_positive_polarity*avg_negative_polarity + title_subjectivity*title_sentiment_polarity + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + data_channel_is_world + global_rate_positive_words*global_rate_negative_words, data=onlinenews)
+
+lm2 = lm(shares ~ n_tokens_title + n_tokens_content + num_imgs + num_videos + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + data_channel_is_world, data=onlinenews)
+
+lm3 = lm(shares ~ n_tokens_title + n_tokens_content + num_imgs + num_videos + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + weekday_is_monday + weekday_is_tuesday + weekday_is_wednesday + weekday_is_thursday + weekday_is_friday + weekday_is_saturday, data=onlinenews)
+
+
+#Root mean-squared prediction error
+rmse = function(y, yhat) {
+  sqrt(mean((y-yhat)^2))
+}
+
+rmse_valsQ3 = do(100)*{
+  n_train = round(0.8*n)  
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  onlinenews_train = onlinenews[train_cases,]
+  onlinenews_test = onlinenews[test_cases,]
+  
+  yhat_test1 = predict(lm1, onlinenews_test)
+  yhat_test2 = predict(lm2, onlinenews_test)
+  yhat_test3 = predict(lm3, onlinenews_test)
+  
+  c(rmse(onlinenews_test$shares, yhat_test1),rmse(onlinenews_test$shares, yhat_test2),rmse(onlinenews_test$shares, yhat_test3))
+
+}
+
+```
+In determining the best model to begin thresholding with, three different linear models were created. After performing a do-loop, the first model routinely outperformed the others by consistently having a lower RMSE value. This is the model that is used throughout the rest of the question. Below are the RMSEs for the models:
+```{r, echo = FALSE}
+colMeans(rmse_valsQ3)
+```
+
+```{r, echo = FALSE}
+# TPR, FPR, error
+matrices = do(100)*{
+  n_train = round(0.8*n)  
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  onlinenews_train = onlinenews[train_cases,]
+  onlinenews_test = onlinenews[test_cases,]
+  
+  onlinenews_test$yhat_test1 = predict(lm1, onlinenews_test)
+  
+  onlinenews_test$viral_test1 = ifelse(onlinenews_test$yhat_test1 > 1400, 1, 0 )
+
+
+  onlinenews_test$viral_test_actual = ifelse(onlinenews_test$shares > 1400, 1, 0)
+  confusion_matrix = table(y = onlinenews_test$viral_test_actual, yhat = onlinenews_test$viral_test1)
+
+  confusion_matrix
+}
+
+topleft = round(mean(as.matrix(matrices[1])))
+bottomleft = round(mean(as.matrix(matrices[2])))
+topright = round(mean(as.matrix(matrices[3])))
+bottomright = round(mean(as.matrix(matrices[4])))
+
+out_of_sample = round((topleft+bottomright)/(topright+bottomright+topleft+bottomleft), 2)
+
+TPR = round(bottomright/(bottomright+bottomleft),4)
+FPR = round(topright/(topright+topleft),4)
+error = round((bottomleft + topright)/(topright+bottomright+topleft+bottomleft),4)
+
+x <- matrix(c(topleft, topright, bottomleft, bottomright), nrow=2, ncol=2, byrow=TRUE)
+dimnames(x) = list( c('y', ''), c('yhat', ''))
+```
+Confusion Matrix:
+```{r, echo = FALSE}
+x <- matrix(c(topleft, topright, bottomleft, bottomright), nrow=2, ncol=2, byrow=TRUE)
+dimnames(x) = list( c('y', ''), c('yhat', ''))
+x
+```
+
+The True Positive Rate is `r TPR`
+
+The False Positive Rate is `r FPR`
+
+The overall error rate is `r error`
+
+The Out of Sample Accuracy is `r out_of_sample`%
+
+Due to the number of variables in the data set, it is difficult to hand build a model that is proficient in accurately determining whether an article goes viral or not. This can be noted in the low confusion matrix values – the most efficient model has an out-of-sample performance rate of approximately `r out_of_sample`. The overall error rate, true positive rate, and false positive rate are noted above. These numbers compare well with a reasonable baseline model, as its true positive rate of determining whether an article goes viral is estimated at `r TPR`, a relatively accurate amount. However, the False Positive Rate is also extremely high, at `r FPR`. Essentially, the model is primarily choosing "not viral", and the values in our confusion matrix assist in showing how both the true and false positive rates can be as high as they are.
+
+## Thresholding and then Estimating Model 
+```{r, echo = FALSE}
+
+onlinenews$viral = ifelse(onlinenews$shares > 1400, 1, 0)
+
+lm1 = lm(viral ~ n_tokens_title*n_tokens_content + num_hrefs*num_self_hrefs + num_imgs*num_videos + average_token_length + num_keywords + self_reference_avg_sharess + avg_positive_polarity*avg_negative_polarity + title_subjectivity*title_sentiment_polarity + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + data_channel_is_world + global_rate_positive_words*global_rate_negative_words, data=onlinenews)
+
+lm2 = lm(viral ~ n_tokens_title + n_tokens_content + num_imgs + num_videos + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + data_channel_is_world, data=onlinenews)
+
+lm3 = lm(viral ~ n_tokens_title + n_tokens_content + num_imgs + num_videos + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + weekday_is_monday + weekday_is_tuesday + weekday_is_wednesday + weekday_is_thursday + weekday_is_friday + weekday_is_saturday, data=onlinenews)
+
+rmse_valsQ32 = do(100)*{
+  n_train = round(0.8*n)  
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  onlinenews_train = onlinenews[train_cases,]
+  onlinenews_test = onlinenews[test_cases,]
+  
+  yhat_test1 = predict(lm1, onlinenews_test)
+  yhat_test2 = predict(lm2, onlinenews_test)
+  yhat_test3 = predict(lm3, onlinenews_test)
+  
+  c(rmse(onlinenews_test$viral, yhat_test1),rmse(onlinenews_test$viral, yhat_test2),rmse(onlinenews_test$viral, yhat_test3))
+
+}
+```
+Here are the RMSE values for the three linear models utilized previously:
+
+```{r, echo = FALSE}
+colMeans(rmse_valsQ32)
+```
+As was the case with the first method, the lowest one refers to the first linear model. Thus, we will continue using that one in our analysis. 
+```{r, echo = FALSE}
+matrices1 = do(100)*{
+  n_train = round(0.8*n)  
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  onlinenews_train = onlinenews[train_cases,]
+  onlinenews_test = onlinenews[test_cases,]
+  
+  phat_test1 = predict(lm1, onlinenews_test)
+  
+  yhat_test1 = ifelse(phat_test1 > .5, 1, 0)
+  
+  confusion_matrix1 = table(y = onlinenews_test$viral , yhat = yhat_test1)
+
+}
+
+topleft1 = round(mean(as.matrix(matrices1[1])))
+bottomleft1 = round(mean(as.matrix(matrices1[2])))
+topright1 = round(mean(as.matrix(matrices1[3])))
+bottomright1 = round(mean(as.matrix(matrices1[4])))
+
+out_of_sample1 = round((topleft1+bottomright1)/(topright1+bottomright1+topleft1+bottomleft1) ,2)
+
+TPR1 = round(bottomright1/(bottomright1+bottomleft1),4)
+FPR1 = round(topright1/(topright1+topleft1),4)
+error1 = round((bottomleft1 + topright1)/(topright1+bottomright1+topleft1+bottomleft1),4)
+improvement = round((out_of_sample1-out_of_sample),2)
+```
+
+Confusion Matrix:
+```{r, echo = FALSE}
+x1 <- matrix(c(topleft1, topright1, bottomleft1, bottomright1), nrow=2, ncol=2, byrow=TRUE)
+dimnames(x1) = list( c('y', ''), c('yhat', ''))
+x1
+```
+
+The True Positive Rate is `r TPR1`
+
+The False Positive Rate is `r FPR1`
+
+The overall error rate is `r error1`
+
+Out of sample accuracy = `r out_of_sample1`%
+
+Improvement = `r improvement`%
+
+From the standpoint of classification, the same model performed better. For instance, the out-of-sample performance rate is `r out_of_sample1`, a decent sized leap from beginning with regression, which was `r out_of_sample`. In addition, the overall error rate was lower, from `r error` to `r error1`. 
+
+Intuitively, it makes sense why the second method used would result in a better performing model. Thresholding a value and then classifying the model provides a more streamlined process than creating the model, regressing it, and then thresholding. 
+
