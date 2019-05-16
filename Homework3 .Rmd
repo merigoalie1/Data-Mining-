@@ -1,0 +1,92 @@
+---
+title: "Homework 3"
+author: "Carys Quezada, Devin Steinhauser, Kaydee Hartmann, & Meri Oshrain"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    self_contained: no
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(mosaic)
+library(foreach)
+library(shiny)
+library(doMC)
+library(gamlr) 
+library(Matrix)
+library(MatrixModels)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Model Selection and Regularization
+
+## Finding A Predictive Model
+
+Before beginning to create a model, we first test the statistical significance of LEED and Enery Star to determine which of the two to consider.
+```{r}
+greenhouse <- read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/greenbuildings.csv")
+lm_energy = lm(Rent ~ size + age + renovated + LEED + Energystar + amenities +
+                 class_a + class_b + cluster_rent + Electricity_Costs 
+               + Gas_Costs, data=greenhouse)
+summary(lm_energy)
+```
+From these regression results, LEED is statistically significant at the 5% level, but energy star is not. Due to this finding, we just include LEED in the remainder of the analysis.
+
+
+In order to build the best predictive model possible for price, we utilize three different methods: forward seletion, stepwise selection, and the lasso approach. 
+```{r, include=FALSE}
+# forward
+lm0 = lm(Rent ~ 1, data=greenhouse)
+lm_forward = step(lm0, direction='forward',
+	scope=~(cluster + size + empl_gr + leasing_rate + 
+		stories + age + renovated + class_a + class_b + LEED +
+		 net + amenities +
+		  cd_total_07 + hd_total07 + total_dd_07 +
+		  Precipitation + Gas_Costs + Electricity_Costs + cluster_rent)^2)
+# step 
+lm_medium = lm(Rent ~ size + age + renovated + LEED +
+                          amenities + total_dd_07 + Gas_Costs + 
+                        Electricity_Costs + cluster_rent + class_a + class_b +
+                        class_a:LEED + class_b:LEED, data=greenhouse)
+lm_step = step(lm_medium,
+                scope=~(. + stories + leasing_rate + empl_gr + Precipitation)^2)
+# lasso 
+scx = sparse.model.matrix(Rent ~ size + age + renovated + LEED + amenities + total_dd_07 + Gas_Costs + Electricity_Costs + cluster_rent + class_a + class_b + class_a:LEED + class_b:LEED, data=greenhouse)[,-1]
+scy = greenhouse$Rent
+sclasso =gamlr(scx, scy, family="gaussian")
+lasso_AIC = min(AIC(sclasso))
+```
+We measure the model's predictive ability by measuring the AIC value. The forward selection model yields an AIC of 34,818.73, the stepwise selection model gives an AIC of 34,855.26, and the AIC for the lasso approach is the highest at 35,464.15. Thus, the forward selection model performs the best out of the three tested. 
+
+## Change in Rental Income per Square Foot
+
+We continue the analysis with the forward selection model since it has the lowest AIC. 
+```{r}
+summary(lm_forward)
+```
+Interpreting the coefficient for LEED will tell us the change in rental income per square foot assocated with green certification. From this regression, LEED shows an estimated decrease in rental income per square foot of approximately 6.74 dollars per year, holding other features of the building constant. 
+
+## Green Certification Effect on Buildings 
+
+While the forward selection model performs better, we use the model found from step-wise model selection because it has an interaction term involving Class A and Class B with LEED.
+```{r}
+summary(lm_step)
+```
+Interpreting coefficients of interaction terms and their significance will assist in showing how the green certification effects buildings of different class. From this regression, Class B has a greater estimated effect of green certification than Class A. These results are in comparison with Class C, which is the baseline and least desirable quality. With respect to LEED, Class A is estimated to have rent increase approximately 1.97 dollars a year, while class B is estimated to have rent increase approximately 4.23 dollars a year, which ultimately shows that the "green certification" effect is different for different building types.
+
+
+# What Causes What?
+
+1.  We cannot simply get data from multiple cities and run a regression of "crime" on "police" to see if more police in the streets affected crime, because this would be a polluted sample. Traditionally an increase of the police force would rely on an increase in crime, or for another reason related to crime, so this regression would suffer greatly from reverse causality. This is why the researchers had to find an example where the police force increased for a reason completely unrelated from crime.
+
+2. The researchers were able to find an example in Washington DC in which an increase in potential terror threats, "high alert", lead to an increase in the police force. A "high alert" day is not correlated with crime. So, they were able to isolate to effect of having more police on the street by using "high alert". The result showed a significant decrease in crime caused by an increase in police.
+
+3. The researchers chose to control for Metro ridership, because a concern was that perhaps on "high alert" days, people would stay inside more and this would mean fewer potential victims for crime, meaning that the negative effect that the researchers found could have been contaminated. So, in order to control for that, they looked at Metro Ridership to see if there were fewer riders on "high alert" days. In controlling for potential victims, the researchers were able to see a causal effect of police on crime. 
+
+4. On orange alert days when there are extra police on the street for reasons unrelated to street crime, what happens to street crime? This model compares high alert district 1 in DC compared to other districts.  They use a dummy variable for district 1 daily crime in the first row, so the second row "other districts" is the daily crime when the dummy variable=0.  The coefficient for district 1 is more negative than other districts indicating, that when there are more police out on the National Mall, there is less street crime in district 1. The expected change in crime in district 1 is -2.621-(-.571)= -2.05, 2.05 less daily crimes in district 1  than other districts when they are on high alert and there are more police out.  The log midday ridership is a check that the researchers took to show that the level of tourists out and about did not change on high alert days.  They did this by checking the ridership on the metro system.  The conclusions they found at least in DC were, when there is more police out on the street, there is less street crime.
