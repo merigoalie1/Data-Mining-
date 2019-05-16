@@ -1,0 +1,672 @@
+---
+title: "US Natural Disasters"
+author: "Carys Quezada, Devin Steinhauser, Kaydee Hartmann, & Meri Oshrain"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    self_contained: no
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(shiny)
+library(ggplot2)
+library(plotly)
+library(maps)
+library(mapproj)
+library(dplyr)
+library(usmap)
+library(forecast)
+library(autoplotly)
+library(mosaic)
+library(FNN)
+library(foreach)
+library(gamlr)
+library(Matrix)
+library(MatrixModels)
+library(jtools)
+library(kableExtra)
+library(broom)
+library(huxtable)
+library(gridExtra)
+library(effects)
+library(plyr)
+library(usmap)
+library(tidyr)
+library(foreign)
+library(dplyr)
+library(lubridate)
+library(shinydashboard)
+library(class)
+library(plyr)
+library(grid)
+library(bayesplot)
+library(caret)
+knitr::opts_chunk$set(echo = TRUE)
+```
+NOTE: This document is an interactive document. You will be able to hover over graphs to see details and click to different sections in the floating  Table of Contents towards the left hand side. 
+
+#Abstract
+
+There are two main questions that this assignment attempts to answer: forecasting future natural disasters and predicting whether politics may play a role in government financial assistance. By taking annual disaster data between 1953 and 2016, five-year forecasts created by ARIMA modeling can determine future patterns of storms. After, we compare 2017 and 2018 natural disaster totals to our predictions. By using linear models with log transformations and building different forms of predictive modeling – KNN, logit, and classification – we can discover if different factors affect the amount of financial aid a region receives after a natural disaster. Through the data sets, binary variables for “election year” and “Republican” were created.
+
+
+Our predictions for forecasting were fairly accurate in comparison to 2018 totals – ours predicted 92, whereas the actual total was 104. It was discovered that there were interesting changes with the “election” and “Republican” binary variables depending on which model was utilized. For example, a linear model estimated positive effects for “election” and negative effects for “Republican” on federal loan amounts, whereas a log transformed model flipped these signs. In addition, a classification model estimated that federal amount had a negative effect on election year, whereas a logit model estimated that the federal amount was positive. These changes can best be described as occurring due to outlying effects during election years and while Democrats were in office, which is visualized in several box plots. Lastly, KNN-modeling determined that it was difficult to predict the federal cost percentage for hazard mitigation projects.
+
+
+#Introduction
+
+Description of our project:
+
+We wanted to answer several questions in this project.  The first is where do the top natural disasters occur, and can we this data to forecast how many natural disasters there will be in the next few years?  This is important because being able to prepare for these disasters could help citizens, businesses, state government, and federal government officials with preventative measures and budgeting relief funds. 
+
+For background, we compiled data to create these heat maps to visualize the frequency and location of natural disasters.
+
+## US Natural Disasters from 1953-2016
+
+First, we start out analyzing where the most frequent natural disasters occur in the United States. These disasters include: fire, hurricane, flood, severe storm, snow, and tornado. 
+
+```{r eruptions, echo=FALSE, message = FALSE}
+disasters <- read.csv("https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/disaster_frequency_by_state.csv")
+names(disasters)[4] <- c("Severe Storm")
+fire_tot = sum(disasters$Fire)
+flood_tot = sum(disasters$Flood)
+hurr_tot = sum(disasters$Hurricane)
+sev_tot = sum(disasters$'Severe Storm')
+snow_tot = sum(disasters$Snow)
+tornado_tot = sum(disasters$Tornado)
+total_tot = sum(disasters$Total)
+total <- disasters %>% select(state, Total, Flood, Fire,Hurricane, 'Severe Storm', Snow, Tornado)
+```
+We aggregate all the frequent natural disasters together to create a total disaster variable. The total disaster plot below shows the location of all the frequent natural disasters:
+```{r, echo=FALSE, warning = FALSE, message = FALSE}
+renderPlotly(plot_usmap(data = total, values = "Total", lines = "black") + scale_fill_continuous(low = "white", high = "black",name = "Frequency", label = scales::comma) + labs() + theme(legend.position = "right"))
+```
+The plot above shows that Texas and California have the most natural disasters from 1953 to 2016 totaling to 245 and 227. Meanwhile, South Carolina had the least at only 22.  
+
+The total number of frequent natural disasters that occured in the United States from 1953-2016 is `r total_tot`. `r fire_tot` of these were fires, `r sev_tot` were severe storms, `r flood_tot` were floods, `r hurr_tot` were hurricanes, `r sev_tot` were severe storms, `r snow_tot` were snow, `r tornado_tot` were tornados. 
+
+In order to view where each individual type of natural disaster occurs, select one from the drop down menu below. Be aware that the legend changes for each disaster:
+```{r, echo=FALSE}
+# User interface ----
+ui <- fluidPage(
+  titlePanel(""),
+  sidebarLayout(
+    sidebarPanel(
+      #helpText("Map of Different Natural Disasters"),
+      
+      selectInput("var", 
+                  label = "Choose Disaster",
+                  choices = c("Total", "Flood", "Fire", "Hurricane", "Severe Storm", "Snow", "Tornado"),
+                  selected = "Total")),
+    (mainPanel(plotOutput("map")))
+))
+server <- function(input, output) {
+  output$map <- renderPlot({
+    args <- switch(input$var,
+      "Total" = list(disasters$total, "black", "Total Number of Disasters"),
+      "Fire" = list(disasters$Fire, "darkred", "Number of Fires"),
+      "Flood" = list(disasters$Fire, "steelblue", "Number of Flood"),
+      "Hurricane" = list(disasters$hurricane, "green", "Number of Hurricanes"),
+      "Severe Storm" = list(disasters$severestorm, "red", "Number of Severe Storms"),
+      "Snow" = list(disasters$snow, "gray", "Number of Snow"),
+      "Tornado" = list(disasters$tornado, "darkgreen", "Number of Tornados"))
+    if (input$var == "Total"){
+      colorHigh = "black"
+    } else if (input$var == "Fire"){
+      colorHigh = "darkred"
+    } else if (input$var == "Flood"){
+      colorHigh = "steelblue"
+    } else if (input$var == "Hurricane"){
+      colorHigh = "green"
+    } else if (input$var == "Severe Storm"){
+      colorHigh = "red"
+    } else if (input$var == "Snow"){
+      colorHigh = "hotpink"
+    } else{
+      colorHigh = "darkgreen"
+    }
+    plot_usmap(data = total, values = input$var, lines = "black") + scale_fill_continuous(low = "white", high = colorHigh ,name = "Frequency", label = scales::comma) +  labs() + theme(legend.position = "right")
+    #do.call(percent_map, args)
+  }, height = 275, width = 600)
+}
+# Run app ----
+shinyApp(ui, server)
+```
+
+
+## Politics and Natural Disasters
+
+We also wanted to see if politics play a role in disaster relief. There is a belief that politicians choose to spend money of natural disaster relief as a way of appearing to be a "hero" figure. Due to this, we aimed to answer the following questions: Which natural disasters receive the most government relief? Does election year play a role? Do different factors such as disaster type, location, or total amount spent affect the amount of government relief?
+
+
+
+#Methods
+
+##Data Sets
+Sources and links for datasets: [FEMA](www.fema.gov)
+
+The data sets we used were from FEMA, the Federal Emergency Management Agency.  We had to do extensive cleaning and preprocessing in order to use the data.  Prepossing included creation of dummy variables and data aggregation.  
+
+The [first data set](https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/disaster_frequency_by_state.csv) includes the disaster frequency by state and the total for the top natural disasters: Hurricane, Severe Storm, Snow, Fire, Flood and Tornado.  This was used to create several US heat maps for each disaster and the total number of disasters per state. 
+
+The [second data set](https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/disaster_freq_by_year.csv) was used for forecasing the number of future natural disasters by type and total.  This data set includes the year and frequency of each incident type.  
+
+The [third data set](https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/loan_data.csv) includes data for specific natural disasters, federal grant and loan programs for indivuals and small businesses, election year and party data.  This data was used to try and predict the amount of loan money was given out after different natural disasters depending on election year or party.  We also tried to create a model to try and predict election years based on relief spending.
+
+The [fourth data set](https://raw.githubusercontent.com/DevinSteinhauser/DataMining/master/agg%20by%20disaster.csv) includes data on state, year, relief project amounts, if it was an election year and federal aid percentage.  This data was used to create a classification model to try and predict election years based on relief spending.
+
+The [fifth data set](https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/mit_data_by_disaster_with_string.csv) includes hazard mitigation data based on state, year, total cost and federal aid percentage.  This data was used to make several data charts of hazard mitigation projects in the United States.  We also used this data to try and estimate models to predict federal cost share percentage of mitigation projects.
+
+##Forecast
+To analyze the data, ARIMA forecast modeling was first utilized to predict future tornados, snow storms, fires, floods, droughts, hurricanes, and severe thunderstorms. ARIMA forecasts automatically select a time-series method to forecast, in this case, the following 5 years.
+
+##Loan Monies
+We use linear regressions and log transformation to see which explanatory variables play a role in the amount of loan money given by FEMA and the Small Business Administration. We also use a step-wise selection to find a better-fitted model to predict these outcomes. 
+
+##Election Year
+We use classification and logit modeling to determining if independent variables can assist in predicting election year, given data from FEMA showing the aggregate of natural disasters. A step-wise selection was implemented to find a better-fitted model, as was done in predicting the amount of loan money.
+
+
+## Mitigation Projects
+The Hazard Mitigation Project data includes information about projects each state is currently undergoing or closed to proevent against certain incident types.  The data set includes the total cost of projects and the federal governmenment aid percentage.  We used linear models and KNN to try and predict the Federal Cost Share Percentage of Hazard Mitigation projects.
+
+See graph 2.1 in the appendix.  There is a recent trend of increased government assistance for hazard mitigation projects.  It can be seen that the federal cost share percentage is to close to zero from 1989 to 2011.  After 2011 the percentage of federal assistance has increased for some specific incident type projects.
+
+
+See graph 2.2 in the appendix.  This shows the federal hazard mitigation assistance percentage per state based on their incident type. Most states receive close to zero, but there are a few that received larger amounts.  It is interesting to note that Tennessee had about 800% federal assistance for a hazard mitigation project. Upon further investation, Tennessee had extensive damage during the 2002 tornado season.  They were hit by tornados and severe storms in the spring and fall of 2002, so this caused an influx of mitigation projects.
+
+
+See graph 2.3 in the appendix.  This represents the total cost of hazard mitigation projects in each state and their associated incident type.  While some projects cost very large amounts, the federal government does little to assist each state with their projects.  The most expensive projects are to help mitigate damages from hurricanes, floods and fires.
+
+
+See graph 2.4 in the appendix.  This is a representation of each of the hazard mitigation projects ongoing or closed in each state. Many states have projects to try and protect against severe storms.  Many states near the coast have projects for flooding or coastal storms. States in the Midwest and South have more projects to protect against tornados.  States along the West coast have projects to mitigate earthquakes. States in the Northern part of the US have projects for snow.  Not surprisingly Hawaii is the only state that has projects for Tsunamis and Volcanos.  
+
+
+See graph 2.5 in the appendix. This graph represents the total number of hazard mitigation projects throughout the years.  From the mid 2000s to about 2012 there was an effort to have more projects to help mitigate severe storms.  In 2015 there was a large spike in projects for fire mitigation.  In 2014 there was believed to be the largest set of wildfires in the US Northwest in 3 decades, which resulted in a spike of projects for fire. Overall there is a trend of increasing number of hazard mitigation projects until about 2016.
+
+
+
+#Results
+
+
+
+## Forecasting Frequency of Future Disasters
+From the previous heat maps, we see that natural disasters are frequent and occur across the country. Can we predict how many the United States will have in the future, though? We used the yearly disaster data from 1953 to 2016 to forecast the frequency of each type of disaster until 2021 for the entire country. These forecasts were created using ARIMA models. On the x-axis, index 1 maps to 1953 and the forecast begins at 2016. Each graph shows the prediction accompanied by 80% confidence intervals.
+
+The ARIMA models were able to form predictions for each disaster type, but are they accurate? Since the dataset has values until 2016 yet predicts until 2021, we can compare 2017 and 2018 natural disaster totals to the values predicted in our models. 2017 maps to index number 65 in the forecast plots and 2018 maps to 66. 
+
+
+```{r, echo = FALSE}
+ts = read.csv("https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/disaster_freq_by_year.csv")
+total_ts1 = ts %>% select(Total)
+total_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly() + ggplot2::ggtitle("Total Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+In the year 2018, there were a total of 104 natural disasters in the United States according to [Munich Re](https://natcatservice.munichre.com). Our model predicted 91.57 and the actual values does fall within the 80% confidence interval. 
+
+***
+
+```{r, echo = FALSE}
+hurricane_ts1 = ts %>% select(Hurricane)
+hurricane_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly() +ggplot2::ggtitle("Hurricane Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+
+There were 3 hurricanes (Harvey, Irma, and Maria) that hit the United States in 2017 that were declared natural disasters. While our ARIMA model did predict 11.8 for the year 2017, the actual value does fall within the 80% confidence interval. 
+
+
+Please see the Appendix for more forecasts of other types of natural disasters.
+
+
+## Predicting Monies 
+Here, we are using data of money given in the form of loans from FEMA and the Small Business Administration. These loans were given to individuals and businesses who filed damages for different natural disasters. This data set is set up by each loan request, not by each disaster like the rest of our data sets. In the first set of linear regressions, we use variables that we believe would be explanatory, and we have the linear model of "Monies" as our outcome variable, compared with a log-transformation of the Monies variable as our outcome variable. The models are:
+
+Monies ~ election + republican + GrantProgram + Year + IncidentType + state
+
+Ln_Monies ~ election + republican + GrantProgram + Year + IncidentType + state
+
+The baselines for these models are Alabama for State, FEMA for Grant Program, and Drought for Incident Type.
+
+See Appendix Output 1.1 for both of these regression outputs. For the first linear regression, we see a positive and significant coefficient for "election", a negative and significant coefficient for "republican", a significant and positive coefficient for the "Small Business Administration" (with FEMA as the baseline), and a significant and negative coefficient for Year. 
+When we perform a log transformation on "Monies", all of these signs maintain their statistical significance, however all of these variables besides "Small Business Administration" flip their signs. The R^2 for the Money model was 0.011, and improved to 0.06 with the log transformation model. Furthermore, many variables such as states and incident types become statistically significant with the log transformation. 
+
+
+Next, we ran a step-wise model selection, using our previous model as our base, and including interactions for the scope. 
+
+After running, the model it gave us was: 
+
+"ln_monies ~ election + republican + GrantProgram + Year + IncidentType + state + GrantProgram:state + IncidentType:state + election:state + Year:state + election:GrantProgram + GrantProgram:IncidentType + republican:state + GrantProgram:Year + republican:GrantProgram"
+
+We ran this model and found many terms to be statistically insignificant, and we fine-tuned it and came up with our second model in which we also compare Monies and the Log of Monies. The models we ran were:
+
+Monies ~ election + republican + GrantProgram + Year + IncidentType + state + GrantProgram:state +  election:GrantProgram + GrantProgram:IncidentType + GrantProgram:Year + republican:GrantProgram
+
+Ln_Monies ~ election + republican + GrantProgram + Year + IncidentType + state + GrantProgram:state +  election:GrantProgram + GrantProgram:IncidentType + GrantProgram:Year + republican:GrantProgram
+
+See Output 1.2 in the Appendix for the full outputs. The R^2 improves from the first set of models, and is now 0.014 and improves to 0.07 when we perform the log transformation of money. Again, in this set of models, many of the variables retain their significance, but flip signs after the log transformation. This was a very interesting finding, and to visualize why this is happening, here are a couple of boxplots showing outliers. There were many outliers that were occuring in election years, as well as many outliers occuring when Democrats were in office. Here are two boxplots to demonstrate what was occuring. When we perform the log transformation, these outliers no longer carry as much weight as they did previously. 
+
+
+```{r, echo = FALSE}
+loan_data = read.csv("https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/loan_data.csv")
+lm1 = lm(Monies ~ election + republican + GrantProgram + Year + IncidentType + state, data=loan_data)
+lmln1 = lm(ln_monies ~ election + republican + GrantProgram + Year + IncidentType + state, data=loan_data)
+models1 <-huxreg('Monies' = lm1, 'Log Monies' = lmln1)
+#lm_step = step(lmln,
+                #scope=~(.)^2)
+#Step:  AIC=197000.8
+#step_model = lm(ln_monies ~ election + republican + GrantProgram + Year + IncidentType + 
+    #state + GrantProgram:state + IncidentType:state + election:state + 
+   # Year:state + election:GrantProgram + GrantProgram:IncidentType + 
+  #  republican:state + GrantProgram:Year + republican:GrantProgram, data=loan_data)
+#summary(step_model)
+new_model = lm(Monies ~ election + republican + GrantProgram + Year + IncidentType + 
+    state + GrantProgram:state +  election:GrantProgram + GrantProgram:IncidentType + 
+     GrantProgram:Year + republican:GrantProgram, data=loan_data)
+new_model_ln = lm(ln_monies ~ election + republican + GrantProgram + Year + IncidentType + 
+    state + GrantProgram:state +  election:GrantProgram + GrantProgram:IncidentType + 
+     GrantProgram:Year + republican:GrantProgram, data=loan_data)
+models2 <- huxreg('Monies' =new_model, 'Log Monies' =new_model_ln)
+```
+
+
+```{r, echo = FALSE, warning=FALSE}
+moneyyear = ggplot(loan_data, mapping = aes(group = Year, x=Year, y=Monies)) + geom_boxplot() + labs(title="Money by Year")
+ln_money_year = ggplot(loan_data, mapping = aes(group = Year, x=Year, y=ln_monies)) + labs(title="Log of Money by Year") +geom_boxplot()
+grid.arrange(moneyyear, ln_money_year, ncol=2)
+republican_money = ggplot(loan_data, mapping = aes(group = republican, x=republican, y=Monies)) + geom_boxplot() + labs(title="Money: Dem=0, Rep=1")
+republican_ln_money = ggplot(loan_data, mapping = aes(group = republican, x=republican, y=ln_monies)) + geom_boxplot() + labs(title="Log of Money: Dem=0, Rep=1")
+grid.arrange(republican_money, republican_ln_money, ncol=2)
+        
+```
+
+
+## Predicting Election Years based on Relief Spending
+
+The next data set includes information on disasters, the federal and total amount spent for them, the federal amount percentage share, and the state the disaster occurred. From here, we attempt to build a model that is able to predict whether it is an election year based off of these variables. Namely, we are curious in seeing if the federal amount spent changes based on if it is an election year or not. 
+```{r, echo = FALSE}
+agdisaster <- read.csv("https://raw.githubusercontent.com/DevinSteinhauser/DataMining/master/agg%20by%20disaster.csv")
+```
+
+First, we begin creating an optimal predictive model using a step-function. After performing this it's noted that the two variables that should be included are federal and total cost, which aligns with what we are attempting to predict. This model is used throughout this section. The code for the step function is included but is suppressed in the output. The linear model with the lowest absolute AIC value was the original model that included all of the variables: "election ~ DisasterNumber + total_cost + fed_amount + disaster_type + state + year + percentage".
+```{r, echo=FALSE}
+agdisaster = na.omit(agdisaster)
+lm_agdisaster1 = lm(election ~ ., data=agdisaster)
+```
+
+```{r, include=FALSE, echo=FALSE}
+lm_step = step(lm_agdisaster1)
+```
+
+Originally, a classification model was created in order to attempt to predict whether it was an election year. The out-of-sample effects were similar to a later logit model, so the output itself will be suppressed. However, the logit model and classification model show different magnitudes of effects on the variables, so their comparison will be discussed towards the end.
+```{r, include=FALSE, echo=FALSE}
+# classification model
+n = nrow(agdisaster)
+ matrices = mosaic::do(100)*{
+  n_train = round(0.8*n)
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  agdisaster_train = agdisaster[train_cases,]
+  agdisaster_test = agdisaster[test_cases,]
+  
+  lm_agdisaster2 = lm(election ~ ., data=agdisaster)
+  
+  agdisaster_test$yhat_test1 = predict(lm_agdisaster2, agdisaster_test)
+  
+  agdisaster_test$election_test = ifelse(agdisaster_test$yhat_test1 > 0.5, 1, 0)
+  agdisaster_test$election_test_actual = ifelse(agdisaster_test$election > 0.5, 1, 0)
+  
+  confusion_matrix = table(y=agdisaster_test$election_test_actual, yhat=agdisaster_test$election_test)
+}
+topleft = round(mean(as.matrix(matrices[1])))
+bottomleft = round(mean(as.matrix(matrices[2])))
+topright = round(mean(as.matrix(matrices[3])))
+bottomright = round(mean(as.matrix(matrices[4])))
+out_of_sample = round(((topleft+bottomright)/(topright+bottomright+topleft+bottomleft)), 2)
+TPR = round(bottomright/(bottomright+bottomleft),4)
+FPR = round(topright/(topright+topleft),4)
+Error = round((bottomleft + topright)/(topright+bottomright+topleft+bottomleft),4)
+Null = round(mean(agdisaster$election),4)
+X <- matrix(c(topleft, topright, bottomleft, bottomright), nrow=2, ncol=2)
+dimnames(X) = list(c('y',''), c('yhat', ''))
+```
+
+```{r, include=FALSE, echo = FALSE}
+X
+```
+
+A logit model is then created to predict election year, with its confusion matrix and predictive properties below.
+```{r, echo=FALSE}
+# Logit Model
+matrices1 = mosaic::do(100)*{
+  n_train = round(0.8*n)
+  n_test = n - n_train
+  train_cases = sample.int(n, n_train, replace=FALSE)
+  test_cases = setdiff(1:n, train_cases)
+  agdisaster_train = agdisaster[train_cases,]
+  agdisaster_test = agdisaster[test_cases,]
+  
+  logit_electionyear = glm(election ~ ., data=agdisaster_train, family='binomial')
+  
+  phat_test_logit_electionyear = predict(logit_electionyear, agdisaster_test, type='response')
+  yhat_test_logit_electionyear = ifelse(phat_test_logit_electionyear > 0.5, 1, 0)
+  
+  confusion_matrix1 = table(y=agdisaster_test$election, yhat=yhat_test_logit_electionyear)
+}
+topleft1 = round(mean(as.matrix(matrices1[1])))
+bottomleft1 = round(mean(as.matrix(matrices1[2])))
+topright1 = round(mean(as.matrix(matrices1[3])))
+bottomright1 = round(mean(as.matrix(matrices1[4])))
+out_of_sample1 = round(((topleft1+bottomright1)/(topright1+bottomright1+topleft1+bottomleft1)), 2)
+TPR1 = round(bottomright1/(bottomright1+bottomleft1),4)
+FPR1 = round(topright1/(topright1+topleft1),4)
+Error1 = round((bottomleft1 + topright1)/(topright1+bottomright1+topleft1+bottomleft1),4)
+Null1 = round(mean(agdisaster$election),4)
+X1 <- matrix(c(topleft1, topright1, bottomleft1, bottomright1), nrow=2, ncol=2)
+dimnames(X1) = list(c('y',''), c('yhat', ''))
+```
+
+Logit Model Confusion Matrix
+```{r, echo=FALSE}
+X1
+```
+
+Out of Sample Accuracy: `r out_of_sample1`
+
+The True Positive Rate is: `r TPR1`
+
+The False Positive Rate is: `r FPR1`
+
+The Error rate is: `r Error1`
+
+As mentioned, the classification and the logit model had different effects on the variables. Two plots and regressions are noted below that show the effects of federal and total cost on election, standardizing the values to better visualize how uncertainty and magnitude differs between the models.
+```{r, echo=FALSE}
+p1 <- plot_summs(lm_agdisaster2, scale=TRUE, colors="lightpink4")
+p2 <- p1 + labs(x="\nClassification Model \n")
+p3 <- plot_summs(logit_electionyear, scale=TRUE, colors="lightpink4")
+p4 <- p3 + labs(x= "\n Logit Model \n")
+grid.arrange(p2, p4, ncol=2)
+#export_summs(lm_agdisaster1, logit_electionyear, model.names=c("Classification Model", "Logit Model"), scale=TRUE)
+classlogitmodels <- huxreg('Classification Model' =lm_agdisaster1, 'Logit Model' =logit_electionyear)
+classlogitmodels                                                        %>% 
+      theme_article                                                  %>% 
+      set_background_color(1:nrow(classlogitmodels), evens, grey(.95)) %>% 
+      set_font_size(final(), 1, 9)                                   %>% 
+      set_bold(final(), 1, FALSE)                                    %>%
+      set_top_border(final(), 1, 1)                                  %>%
+      set_caption('Classification and Logit Models')
+```
+
+From this information, one can see that the logit model predicts that federal amount and total cost have a larger effect for predicting election. A one deviation increase in election leads to an estimated 0.07 standard deviation decrease in federal spending in the classification model. Meanwhile, for the logit model, a one standard deviation increase in election leads to an estimated standard deviation increase (after adjusting the coefficients for the logistic interpretation, with the value varying). It should be noted that the p-values increase with the logit model and are only statistically significant at the 20% level. While the out of sample accuracies are similar, approximately 52-57%, the overall predicted effects are different. This follows the same interesting observation noted while predicting monies.
+
+
+## Hazard Mitgation Projects
+
+```{r, warning=FALSE, echo=FALSE}
+HM <-read_csv("https://raw.githubusercontent.com/kdhartmann/DataMining-StatModeling/master/mit_data_by_disaster_with_string.csv", col_types = cols(election = col_number(), fed_amount = col_number(), percentage = col_number(), total_cost = col_number(), year = col_number(), state = col_factor()))
+HM_Dummies=data.frame(HM)
+HM_Dummies$Flood= as.numeric(HM$incident_type == "Flood")
+HM_Dummies$Tornado= as.numeric(HM$incident_type == "Tornado")
+HM_Dummies$SevereStorm= as.numeric(HM$incident_type == "Severe Storm")
+HM_Dummies$Hurricane= as.numeric(HM$incident_type == "Hurricane")
+HM_Dummies$Earthquake= as.numeric(HM$incident_type == "Earthquake")
+#HM_Dummies$Typhoon= as.numeric(HM$incident_type == "Typhoon")
+HM_Dummies$Volcano= as.numeric(HM$incident_type == "Volcano")
+HM_Dummies$Fire= as.numeric(HM$incident_type == "Fire")
+HM_Dummies$Snow= as.numeric(HM$incident_type == "Snow")
+HM_Dummies$IceStorm= as.numeric(HM$incident_type == "Severe Ice Storm")
+HM_Dummies$CoastalStorm= as.numeric(HM$incident_type == "Coastal Storm")
+HM_Dummies$Freezing= as.numeric(HM$incident_type == "Freezing")
+#HM_Dummies$Drought= as.numeric(HM$incident_type == "Drought")
+#HM_Dummies$Dam= as.numeric(HM$incident_type == "Dam/Levee Break")
+#HM_Dummies$Fishing= as.numeric(HM$incident_type == "Fishing Losses")
+#HM_Dummies$HC= as.numeric(HM$incident_type == "Human Cause")
+#HM_Dummies$Landslide= as.numeric(HM$incident_type == "Mud/Landslide")
+HM_Dummies$Other= as.numeric(HM$incident_type == "Other")
+HM_Dummies$Tsunami= as.numeric(HM$incident_type == "Tsunami")
+#HM_Dummies$Terrorist= as.numeric(HM$incident_type == "Terrorist")
+```
+
+```{r, echo=FALSE}
+first = ggplot(data = HM_Dummies) + 
+  geom_point(mapping = aes(x=year, y=percentage, color=incident_type)) +labs(title="Federal Cost Share Percentage as year increases filtered by incident type", x="Year", y="Federal Cost Share Percentage")
+x=ggplot(data = HM_Dummies) + 
+  geom_point(mapping = aes(x=state, y=percentage, color=incident_type)) + labs(title="Federal Cost Share Percentage per State separated by Incident Type", x="State", y="Federal Cost Share Percentage")
+x2=ggplot(data = HM_Dummies) + 
+  geom_point(mapping = aes(x=state, y=total_cost, color=incident_type)) + labs(title="Total Project Amount per State separated by incident type", x="State", y="Total Cost")
+x3=ggplot(data = HM_Dummies) + 
+  geom_bar(mapping = aes(x = state, fill = incident_type)) + labs(title="Total Incident Type Frequency Hazard Mitigation per State", x="State", y="Project Frequency")
+bar2 <- ggplot(data = HM_Dummies) + 
+  geom_bar(
+    mapping = aes(x = year, fill = incident_type), 
+    show.legend = TRUE,
+    width = 1
+  ) + 
+  theme(aspect.ratio = 1) +
+  labs(title= " Incident Type Project by Year", x = "Year", y = "Project Frequency")
+```
+
+
+## Predicting Federal Aid in Hazard Mitigation Projects
+
+```{r, message = FALSE, warning=FALSE}
+##Linear model of federal cost share percentage
+drops <- c("incident_type")
+HM_Dummies = HM_Dummies[ , !(names(HM_Dummies) %in% drops)]
+rmse = function(y, yhat) {
+  sqrt(data.matrix(mean( (y - yhat)^2 ) ))
+}
+n = nrow(HM_Dummies)
+rmse_vals = mosaic::do(100)*{
+  
+  n_train=round(0.8*n)
+  n_test=n-n_train
+  train_cases=sample.int(n, n_train)
+  test_cases = setdiff(1:n, train_cases)
+  HM_train = HM_Dummies[train_cases,]
+  HM_test = HM_Dummies[test_cases,]
+  
+  HM_test1 = subset(HM_test, Flood!= "NA")
+  HM_train1 = subset(HM_train, Flood!= "NA")
+  
+  lm1=lm(percentage~year+Flood+Hurricane+SevereStorm, data=HM_train1) 
+  lm2=lm(percentage~state+Flood+Hurricane+SevereStorm, data=HM_train1) 
+  lm3=lm(percentage~state+year+Fire+Tornado+SevereStorm+Snow, data=HM_train1) 
+  lm4=lm(percentage~state+year+Fire+Tornado+Flood+Hurricane+SevereStorm+Snow, data=HM_train1)
+  lm5=lm(percentage~state+year+Fire+Tornado+Flood+Hurricane+SevereStorm+Snow+state*Snow+state*Fire+state*Flood+state*Hurricane+state*SevereStorm, data=HM_train1)
+  lm6=lm(percentage~state+year+Fire+Tornado+Flood+Hurricane+SevereStorm+Snow+year*Snow+year*Fire+year*Flood+year*Hurricane+year*SevereStorm, data=HM_train1)
+  yhat_test1= predict(lm1, HM_test1)
+  yhat_test2= predict(lm2, HM_test1)
+  yhat_test3= predict(lm3, HM_test1)
+  yhat_test4= predict(lm4, HM_test1)
+  yhat_test5= predict(lm5, HM_test1)
+  yhat_test6= predict(lm6, HM_test1)
+  
+  c(rmse(HM_test1$percentage, yhat_test1),rmse(HM_test1$percentage, yhat_test2), rmse(HM_test1$percentage, yhat_test3),rmse(HM_test1$percentage, yhat_test4), rmse(HM_test1$percentage, yhat_test5), rmse(HM_test1$percentage, yhat_test6))
+} 
+ 
+  rmse_means = colMeans(rmse_vals)
+  rmse_mean_lm1 = as.character(format(round(rmse_means[[1]],2),big.mark = ','))
+  rmse_mean_lm2 = as.character(format(round(rmse_means[[2]],2),big.mark = ','))
+  rmse_mean_lm3 = as.character(format(round(rmse_means[[3]],2),big.mark = ','))
+  rmse_mean_lm4 = as.character(format(round(rmse_means[[4]],2),big.mark = ','))
+  rmse_mean_lm5 = as.character(format(round(rmse_means[[5]],2),big.mark = ','))
+  rmse_mean_lm6 = as.character(format(round(rmse_means[[6]],2),big.mark = ','))
+  
+#mean(HM_Dummies$percentage) 
+```
+
+We decided to predict Federal Cost Share Percentage becuase we wanted to be able to have a standardized measure across states and incidents instead of just predicting Project Amount.  We don't want give extra weight to storms or disasters that caused more damage and received more project aid.  Here we used a linear model to predict Federal Cost Share Percentage using state, year and different incident types.  Model 1 predicts `r rmse_mean_lm1`%.  Changing to using only state with no year but the same incidents flood, hurricane and severe storm in linear models 1 and 2 does change the Federal Cost Share Percentage prediction to `r rmse_mean_lm2`%.  Changing or adding in incident type like in model 3 and 4 does not really change the Federal Cost Share Percentage when both state and year are included.  Model 3 predicts `r rmse_mean_lm3`% and model 4 predicts `r rmse_mean_lm4`%.  Model 5 uses interactions with all of the incidicent types with state and has an over prediction of `r rmse_mean_lm5`%.  Model 6 uses interactions with all of the incidents and year and has a prediction of `r rmse_mean_lm6`%.
+
+When we compare this to the mean of Federal Cost Share Percentage of the data set, 2.03%, the linear models do not do a great job predicting Fedearl Cost Share Percentage.  They over estimate the federal assistance in hazard mitigation projects.
+
+
+
+```{r, message=FALSE, warning=FALSE}
+##KNN
+rmse = function(y, yhat) {
+  sqrt((mean( (y - yhat)^2 ) ))
+}
+  
+X = dplyr::select(HM_Dummies,year, Fire, Flood, Snow, SevereStorm, Hurricane, Tornado) 
+y = HM_Dummies$percentage
+n = length(y)
+n_train = round(0.8*n)
+n_test = n - n_train
+k_grid = seq(1, 100, by=4)
+rmse_grid = foreach(k = k_grid,  .combine='c') %do% {
+  out = mosaic::do(100)*{
+    train_ind = sample.int(n, n_train)
+    X_train = X[train_ind,]
+    X_test = X[-train_ind,]
+    y_train = y[train_ind]
+    y_test = y[-train_ind]
+    X_train1 = subset(X_train, Flood!= "NA")
+    X_test1 = subset(X_test, Flood!= "NA")
+    
+        scale_factors = apply(X_train1, 2, sd)
+    X_train_sc = scale(X_train1, scale=scale_factors)
+    
+    X_test_sc = scale(X_test1, scale=scale_factors)
+    
+    knn_try = knn.reg(train=X_train_sc, test= X_test_sc, y =y_train, k=k)
+    ypred_knn = knn_try$pred
+    c(rmse(y_test, ypred_knn))
+  }
+  mean(out$result)
+} 
+min_rmse = as.character(format(round(min(rmse_grid),2),big.mark = ','))
+elem_min_rmse = which(rmse_grid == min(rmse_grid))
+k_min_rmse = as.character(k_grid[elem_min_rmse])
+renderPlotly( ggplot() + geom_point(mapping=aes(x=k_grid, y=rmse_grid), color = 'steelblue') + labs(title="RMSE for Values of K", y = "RMSE", x = "K"))
+ 
+```
+
+The KNN model predicts Federal Cost Share Percentage as `r min_rmse`.   We did not include the "state" variable in this model becuase we can see from the linear model that the predictions are more accurate when state is not included. This prediction is less than the linear model. A KNN model in this case would be better predicting the Federal Cost Share Percentage.
+
+Both models severely over estimated the federal cost share percentage, this could be becuase predicting federal assistance for hazard mitgation projects can be very hard to estimate given the data set.  Predicting project assistance by incident type will actually not improve estimates, but including the year and excluding the state will make it more accurate.
+
+
+#Conclusion
+
+We came across many interesting findings throughout this project, some expected and some unexpected. 
+
+In our forecasting models, even though the ARIMA models are able to make predictions about natural disaster frequencies, their accuracy can be questioned. While neither the hurricane frequency for 2017 or total disaster frequency of 2018 matched the predicted value, the actual values did still fall into the 80% confidence intervals. 
+
+When predicting what effects loan amounts, there was statistical significance to election, political party, year, states, incident types, and more. What was interesting is that the signs of the coefficients flipped when performing a log transformation of monies. This log transformation corrected for outliers, and we found that in election years, loan amounts decrease, when there is a republican party in office loan amounts increase, and more. Our model was strengthened when we performed step-wise selection and included interaction terms. 
+
+Predicting election resulted in the effect for federal amount on election switching sign between the classification and logit model. While the out of sample accuracies between the two models were similar, the effects between the two were different. The classification model estimated that there was a standard deviation decrease with federal amount spent with a one standard deviation increase in election, and the logit model estimated that there was a standard deviation increase.
+
+Predicting the percentage of federal assistance in hazard mitigation projects is extremely difficult.  Both the linear models and KNN overestimate federal aid in projects.  The most accurate linear model does not include the state variable.  Including different incident type combinations does not improve estimation accuracy.  Including interactions of incident types with state has the highest federal percentage estimation.  Interactions with year and incident type improves estimation accuracy, but is not as good as the model without interactions and only year.  The KNN model has a lower federal cost share percentage compared to the linear models, but also overestimates the federal support.  
+
+
+
+#Appendix
+
+## More Forecasts
+
+
+```{r, echo = FALSE}
+fire_ts1 = ts %>% select(Fire)
+fire_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly() + ggplot2::ggtitle("Fire Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+
+***
+
+```{r, echo = FALSE}
+flood_ts1 = ts %>% select(Flood)
+flood_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly() + ggplot2::ggtitle("Flood Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+
+***
+
+```{r, echo = FALSE}
+snow_ts1 = ts %>% select(Snow)
+snow_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly()+ ggplot2::ggtitle("Snow Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+
+***
+
+```{r, echo = FALSE}
+storm_ts1 = ts %>% select(Severe_storm)
+storm_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly()+ ggplot2::ggtitle("Storm Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+
+***
+
+```{r, echo = FALSE}
+tornado_ts1 = ts %>% select(Tornado)
+tornado_ts1 %>% auto.arima() %>% forecast(h=5) %>% autoplotly()+ ggplot2::ggtitle("Tornado Forecast") + ggplot2::labs(y = "Frequency", x = "Index")
+```
+
+
+
+## Output 1.1
+
+Output 1.1 
+```{r}
+models1                                                         %>% 
+      theme_article                                                  %>% 
+      set_background_color(1:nrow(models1), evens, grey(.95)) %>% 
+      set_font_size(final(), 1, 9)                                   %>% 
+      set_bold(final(), 1, FALSE)                                    %>%
+      set_top_border(final(), 1, 1)                                  %>%
+      set_caption('Linear regressions of Monies and Log of Monies')
+```
+
+## Output 1.2
+
+Output 1.2
+```{r}
+models2                                                        %>% 
+      theme_article                                                  %>% 
+      set_background_color(1:nrow(models2), evens, grey(.95)) %>% 
+      set_font_size(final(), 1, 9)                                   %>% 
+      set_bold(final(), 1, FALSE)                                    %>%
+      set_top_border(final(), 1, 1)                                  %>%
+      set_caption('Linear regressions of Monies and Log of Monies')
+```
+
+## Graph 2.1
+
+Graph 2.1
+```{r}
+first
+```
+
+## Graph 2.2
+
+Graph 2.2
+```{r}
+x + coord_flip()
+```
+
+## Graph 2.3
+
+Graph 2.3
+```{r}
+x2+ coord_flip() 
+```
+
+## Graph 2.4
+
+Graph 2.4
+```{r}
+x3+coord_flip()
+```
+
+## Graph 2.5
+
+Graph 2.5
+```{r}
+bar2
+```
