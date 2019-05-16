@@ -1,0 +1,569 @@
+---
+title: "Homework 1"
+author: "Carys Quezada, Devin Steinhauser, Kaydee Hartmann, & Meri Oshrain"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    self_contained: no
+runtime: shiny
+---
+
+NOTE: This document is an interactive document. You will be able to hover over graphs to see details and click to different sections in the floating  Table of Contents towards the left hand side. 
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(shiny)
+library(grid)
+library(DT)
+library(shinydashboard)
+library(plotly)
+#library(lubridate)
+library(reshape2)
+library(mosaic)
+library(FNN)
+library(ggplot2)
+library(cowplot)
+library(foreach)
+library(scales)
+library(purrr)
+library(readr)
+library(ISLR)
+library(caret)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Visualization 1: Green Buildings
+
+As these three graphs show, the “data guru” was partially correct in her analysis, but did not assess other factors of why green buildings had on average higher rent prices than non-green buildings. As mentioned previously, the median market rent in the green buildings was $27.60 per square foot per year, whereas the median market rent in the non-green buildings was $25 per square foot per year. Thus, for a 250,000 square foot green building, it would accrue an estimated additional $650,000 of extra revenue per year. The first two graphs reiterate this point, which is helpful for the next segment.
+
+```{r, echo = FALSE}
+greenbuildings <- read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/greenbuildings.csv", header=TRUE)
+greenbuildings$green_rating = as.character(greenbuildings$green_rating)
+greenbuildings <- greenbuildings %>%
+  mutate(green_rating1 = case_when(green_rating == 1 ~ "Green", green_rating == 0 ~ "Non-Green"))
+greenbuildings_sum=greenbuildings%>%
+  group_by(green_rating1) %>%
+  summarize(leasing_rate_median=median(leasing_rate))
+  
+renderPlotly(ggplot(data=greenbuildings) +
+  geom_boxplot(mapping=aes(x = green_rating1, y = leasing_rate), fill = "steelblue") +
+  labs(
+      title = "Leasing rate for Green and Non-Green buildings", 
+      x="Green Rating", 
+      y= "Leasing Rate (%)"))
+```
+ 
+This shows that greenbuildings have a higher leasing rate than non-green buildings.
+
+```{r, echo = FALSE}
+renderPlotly(ggplot(data=greenbuildings) +
+  geom_boxplot(mapping=aes(x=green_rating1, y=Rent), fill = "steelblue") +
+  ylim(c(0,100)) +
+  labs(
+    title= "Median rent for Green and Non-Green buildings",
+    x="Green Rating"
+  ))
+  
+```
+This shows that median rent for non green buildings is 25.0 dollars/sq foot and green buildings is 27.6 dollars/sq foot.
+
+That being said, there are numerous factors that potentially effect rent prices. For example, we are given information on whether or not a specific building contains one or more amenities. When amenities are added to the analysis, there is evidence shown that the median rent prices for non-green buildings are actually higher than green buildings. The “data guru” makes no mention if the new building will contain added amenities, which could result in a lower rent price and thus lower revenues than if they were to build a non-green building.
+
+
+
+Filtered size and kept building within 240,000 and 270,000 square feet. 
+
+```{r, echo = FALSE}
+filtered <- greenbuildings %>%
+  filter(size %in% (240000:270000)) %>%
+  mutate(amenities_1 = case_when(amenities == 1 ~ "Amenitites", amenities == 0 ~ "No Ammenities"))
+renderPlotly(ggplot(data=filtered)+
+  geom_boxplot(mapping=aes(x=green_rating1, y=Rent), fill = "steelblue") +
+  ylim(c(0,75)) +
+  facet_wrap( ~amenities_1) +
+  labs(
+      title= "Rent for Green and Non-Green Buildings Filtered by Amenities and Size",
+      x= "Green Rating",
+      y="Rent ($)") + theme(plot.title = element_text(size=12)))
+```
+
+To make her analysis more concrete, the “data guru” should include information more directly comparing green and non-green buildings. This encompasses rent prices, as well as perhaps class building quality, renovation factors, and precipitation quantity in the building’s region.
+
+# Data visualization 2: Flights at ABIA
+
+This graph shows the aggregation of all the different delays: carrier, weather, NAS, security, and aircraft. 
+
+A businessperson is curious what the best day is to travel to minimize the amount of potential delays. When all delays are put into perspective – weather, security, carrier, NAS, and aircraft – they are able to see that Wednesday and Thursday have the lowest delay time at approximately 45 minutes. Thus, when all delays are grouped together, they see that mid-week would be the ideal time to leave for their trip.
+
+```{r, echo = FALSE}
+ABIA = read.csv('https://raw.githubusercontent.com/jgscott/ECO395M/master/data/ABIA.csv')
+ABIA_day = ABIA %>%
+  mutate(day = case_when(DayOfWeek == 1 ~ "Monday", DayOfWeek == 2 ~ "Tuesday", DayOfWeek == 3 ~ "Wednesday", DayOfWeek == 4 ~ "Thursday", DayOfWeek == 5 ~ "Friday", DayOfWeek == 6 ~ "Saturday", DayOfWeek == 7 ~ "Sunday")) %>% arrange(DayOfWeek)
+# Total Delay
+group_all = ABIA_day %>%
+  group_by(day, DayOfWeek) %>%
+  filter(!is.na(CarrierDelay) & !is.na(WeatherDelay) & !is.na(NASDelay) & !is.na(SecurityDelay) & !is.na(LateAircraftDelay)) %>%
+  summarize(delay = mean(CarrierDelay) + mean(WeatherDelay) + mean(NASDelay) + mean(SecurityDelay) + mean(LateAircraftDelay))
+renderPlotly({ggplot(data = group_all) +  geom_bar(stat='identity', mapping = aes(x=reorder(day,DayOfWeek), y=delay), fill = "steelblue") + 
+  labs(title="Total Delay by Week Day",
+       y="Delay in Minutes",
+       x = "Day of the Week")})
+```
+In regards to aggregate delay, Thursday is the lowest followed closely by Wednesday.
+
+
+## Individual Delays: Carrier, Weather, NAS, Security, and Late Aircraft
+
+When the different delays are differentiated from one another, there are slight differences on the “best” day. For example, when viewing security delays, Wednesdays show on average higher delays than other days of the week – it should be noted that the differences in time are relatively small, however. While Wednesdays and Thursdays have the estimated lowest delays across the week, it is interesting that the data alternates when all delays are analyzed together versus being interpreted separately.
+
+If someone is concerned about a specific delay, they can few the graphs below. 
+```{r, echo = FALSE}
+# CarrierDelay
+group_carrier = ABIA_day %>%
+  group_by(day,DayOfWeek) %>%
+  filter(!is.na(CarrierDelay)) %>%  # gets rid of null values 
+  summarize(CarrierDelayMean = mean(CarrierDelay))
+carrier_plot <- ggplot(data = group_carrier) + geom_bar(stat='identity', mapping = aes(x=reorder(day,DayOfWeek), y=CarrierDelayMean), fill = "steelblue")+ 
+  labs(title="Carrier Delay by Week Day",
+       y="Delay in Minutes",
+       x = "Day of the Week")
+renderPlotly(carrier_plot)
+```
+
+Friday, followed closely by Tuesday, is the day with the lowest carrier delay.
+
+```{r, echo = FALSE}
+# WeatherDelay
+group_weather = ABIA_day %>%
+  group_by(day,DayOfWeek) %>%
+  filter(!is.na(WeatherDelay)) %>%
+  summarize(WeatherDelayMean = mean(WeatherDelay))
+weather_plot <- ggplot(data = group_weather) + geom_bar(stat='identity', mapping = aes(x=reorder(day,DayOfWeek), y=WeatherDelayMean), fill = "steelblue")+ 
+  labs(title="Weather Delay by Week Day",
+       y="Delay in Minutes",
+       x = "Day of the Week")
+renderPlotly(weather_plot)
+```
+
+Sunday is the lowest day for weather delay.
+
+```{r, echo = FALSE}
+# NAS Delay
+group_nas = ABIA_day %>%
+  group_by(day,DayOfWeek) %>%
+  filter(!is.na(NASDelay)) %>%
+  summarize(NASDelayMean = mean(NASDelay))
+nas_plot <- ggplot(data = group_nas) +  geom_bar(stat='identity', mapping = aes(x=reorder(day,DayOfWeek), y=NASDelayMean), fill = "steelblue")+ 
+  labs(title="NAS Delay by Week Day",
+       y="Delay in Minutes",
+       x = "Day of the Week")
+renderPlotly(nas_plot)
+```
+
+Sunday also is the lowest day for NAS delay.
+
+```{r, echo = FALSE}
+# Security Delay
+group_security = ABIA_day %>%
+  group_by(day,DayOfWeek) %>%
+  filter(!is.na(SecurityDelay)) %>%
+  summarize(SecurityDelayMean = mean(SecurityDelay))
+security_plot <- ggplot(data = group_security) +  geom_bar(stat='identity', mapping = aes(x=reorder(day,DayOfWeek), y=SecurityDelayMean), fill = "steelblue")+ 
+  labs(title="Security Delay by Week Day",
+       y="Delay in Minutes",
+       x = "Day of the Week")
+renderPlotly(security_plot)
+```
+
+Tuesday is the lowest day for security delay.
+
+``` {r, echo = FALSE}
+# Late Aircraft Delay
+group_aircraft = ABIA_day %>%
+  group_by(day,DayOfWeek) %>%
+  filter(!is.na(LateAircraftDelay)) %>%
+  summarize(AircraftDelayMean = mean(LateAircraftDelay))
+aircraft_plot <- ggplot(data = group_aircraft) +  geom_bar(stat='identity', mapping = aes(x=reorder(day,DayOfWeek), y=AircraftDelayMean), fill = "steelblue")+ 
+  labs(title="Late Aircraft Delay by Week Day",
+       y="Delay in Minutes",
+       x = "Day of the Week")
+renderPlotly(aircraft_plot)
+```
+
+Saturday is the lowest day for late aircraft delay.
+
+While there are noticeable differences in delay time across the week, the most “ideal” days of the week for the businessperson to travel to minimize delays would be Wednesday and Thursday.
+
+# Data Visualization 3: Regression vs KNN
+
+```{r, echo = FALSE}
+sclass = read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/sclass.csv")
+sclass350 = subset(sclass, trim == '350')
+sclass65AMG = subset(sclass, trim == '65 AMG')
+```
+
+Look at price vs mileage for each trim level
+```{r, echo = FALSE, warning = FALSE}
+#plot(price ~ mileage, data = sclass350)
+#plot(price ~ mileage, data = sclass65AMG)
+og350 = ggplot(data = sclass350) +
+  geom_point(mapping = aes(x = mileage, y = price), color='steelblue') + labs(title = "S Class 350") +
+  ylim(0,250000) + xlim(0,150000)
+og65 = ggplot(data = sclass65AMG) +
+  geom_point(mapping = aes(x = mileage, y = price), color='steelblue') + labs(title = "S Class 65 AMG") +
+  ylim(0,250000) + xlim(0,150000)
+plot_grid(og350, og65, align="h")
+```
+
+```{r, echo = FALSE}
+# splitting the data
+N350 = nrow(sclass350)
+N_train350 = floor(0.8*N350)
+N_test350 = N350 - N_train350
+N65 = nrow(sclass65AMG)
+N_train65 = floor(0.8*N65)
+N_test65 = N65 - N_train65
+# Train/test split
+# randomly sample a set of data points to include in the training set
+train_ind350 = sample.int(N350, N_train350, replace=FALSE)
+train_ind65 = sample.int(N65, N_train65, replace=FALSE)
+# Define the training and testing set
+D_train350 = sclass350[train_ind350,]
+D_test350 = sclass350[-train_ind350,]
+D_train65 = sclass65AMG[train_ind65,]
+D_test65 = sclass65AMG[-train_ind65,]
+# optional book-keeping step:
+# this isn't necessary, but it will allow us to make a pretty plot later
+D_test350 = arrange(D_test350, mileage)
+D_test65 = arrange(D_test65, mileage)
+# Now separate the training and testing sets into features (X) and outcome (y)
+X_train350 = select(D_train350, mileage)
+y_train350 = select(D_train350, price)
+X_test350 = select(D_test350, mileage)
+y_test350 = select(D_test350, price)
+X_train65 = select(D_train65, mileage)
+y_train65 = select(D_train65, price)
+X_test65 = select(D_test65, mileage)
+y_test65 = select(D_test65, price)
+```
+
+```{r, echo = FALSE}
+###fit models
+# k=3
+knn3_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=3)
+#names(knn2_350)
+knn3_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=3)
+#names(knn2_65)
+# k=5
+knn5_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=5)
+#names(knn5_350)
+knn5_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=5)
+#names(knn5_65)
+# k=10
+knn10_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=10)
+#names(knn10_350)
+knn10_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=10)
+#names(knn10_65)
+# k=20
+knn20_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=20)
+#names(knn20_350)
+knn20_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=20)
+#names(knn20_65)
+# k=30
+knn30_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=30)
+#names(knn30_350)
+knn30_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=30)
+#names(knn30_65)
+# k=40
+knn40_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=40)
+#names(knn40_350)
+knn40_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=40)
+#names(knn40_65)
+# k=60
+knn60_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=60)
+#names(knn60_350)
+knn60_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=60)
+#names(knn60_65)
+# k=80
+knn80_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=80)
+#names(knn80_350)
+knn80_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=80)
+#names(knn80_65)
+# k=100
+knn100_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=100)
+#names(knn100_350)
+knn100_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=100)
+#names(knn100_65)
+# k=150
+knn150_350 = knn.reg(train = X_train350, test = X_test350, y = y_train350, k=150)
+#names(knn40_350)
+knn150_65 = knn.reg(train = X_train65, test = X_test65, y = y_train65, k=150)
+#names(knn150_65)
+```
+
+```{r, echo = FALSE}
+ypred_knn3_350 = knn3_350$pred
+ypred_knn3_65 = knn3_65$pred
+ypred_knn5_350 = knn5_350$pred
+ypred_knn5_65 = knn5_65$pred
+ypred_knn10_350 = knn10_350$pred
+ypred_knn10_65 = knn10_65$pred
+ypred_knn20_350 = knn20_350$pred
+ypred_knn20_65 = knn20_65$pred
+ypred_knn30_350 = knn30_350$pred
+ypred_knn30_65 = knn30_65$pred
+ypred_knn40_350 = knn40_350$pred
+ypred_knn40_65 = knn40_65$pred
+ypred_knn60_350 = knn60_350$pred
+ypred_knn60_65 = knn60_65$pred
+ypred_knn80_350 = knn80_350$pred
+ypred_knn80_65 = knn80_65$pred
+ypred_knn100_350 = knn100_350$pred
+ypred_knn100_65 = knn100_65$pred
+ypred_knn150_350 = knn150_350$pred
+ypred_knn150_65 = knn150_65$pred
+```
+
+
+```{r ,echo = FALSE}
+##helperfunction
+rmse = function(y, ypred) {
+  sqrt(mean(data.matrix((y-ypred)^2)))
+}
+rmse_350_3 = rmse(y_test350, ypred_knn3_350)
+rmse_65_3 = rmse(y_test65, ypred_knn3_65)
+rmse_350_5 = rmse(y_test350, ypred_knn5_350)
+rmse_65_5 = rmse(y_test65, ypred_knn5_65)
+rmse_350_10 = rmse(y_test350, ypred_knn10_350)
+rmse_65_10 = rmse(y_test65, ypred_knn10_65)
+rmse_350_20 = rmse(y_test350, ypred_knn20_350)
+rmse_65_20 = rmse(y_test65, ypred_knn20_65)
+rmse_350_30 = rmse(y_test350, ypred_knn30_350)
+rmse_65_30 = rmse(y_test65, ypred_knn30_65)
+rmse_350_40 = rmse(y_test350, ypred_knn40_350)
+rmse_65_40 = rmse(y_test65, ypred_knn40_65)
+rmse_350_60 = rmse(y_test350, ypred_knn60_350)
+rmse_65_60 = rmse(y_test65, ypred_knn60_65)
+rmse_350_80 = rmse(y_test350, ypred_knn80_350)
+rmse_65_80 = rmse(y_test65, ypred_knn80_65)
+rmse_350_100 = rmse(y_test350, ypred_knn100_350)
+rmse_65_100 = rmse(y_test65, ypred_knn100_65)
+rmse_350_150 = rmse(y_test350, ypred_knn150_350)
+rmse_65_150 = rmse(y_test65, ypred_knn150_65)
+```
+
+***
+
+```{r, echo = FALSE, warning = FALSE}
+####
+# plot the fit
+####
+# attach the predictions to the test data frame
+D_test350$ypred_knn3_350 = ypred_knn3_350
+D_test65$ypred_knn3_65 = ypred_knn3_65
+D_test350$ypred_knn5_350 = ypred_knn5_350
+D_test65$ypred_knn5_65 = ypred_knn5_65
+D_test350$ypred_knn10_350 = ypred_knn10_350
+D_test65$ypred_knn10_65 = ypred_knn10_65
+D_test350$ypred_knn20_350 = ypred_knn20_350
+D_test65$ypred_knn20_65 = ypred_knn20_65
+D_test350$ypred_knn30_350 = ypred_knn30_350
+D_test65$ypred_knn30_65 = ypred_knn30_65
+D_test350$ypred_knn40_350 = ypred_knn40_350
+D_test65$ypred_knn40_65 = ypred_knn40_65
+D_test350$ypred_knn40_350 = ypred_knn60_350
+D_test65$ypred_knn40_65 = ypred_knn60_65
+D_test350$ypred_knn40_350 = ypred_knn80_350
+D_test65$ypred_knn40_65 = ypred_knn80_65
+D_test350$ypred_knn40_350 = ypred_knn100_350
+D_test65$ypred_knn40_65 = ypred_knn100_65
+D_test350$ypred_knn40_350 = ypred_knn150_350
+D_test65$ypred_knn40_65 = ypred_knn150_65
+p_test350 = ggplot(data = D_test350) + 
+  geom_point(mapping = aes(x = mileage, y = price), color='steelblue') + 
+  theme_bw(base_size=18) + 
+  ylim(0, 250000) + xlim(0,150000) + labs(title = "Testing Data - 350") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+p_test65 = ggplot(data = D_test65) + 
+  geom_point(mapping = aes(x = mileage, y = price), color='steelblue') + 
+  theme_bw(base_size=18) + 
+  ylim(0, 250000) + xlim(0,150000) + labs(title = "Testing Data - AMG 65") + theme(plot.title = element_text(size=16, face = "bold")) + theme(axis.text=element_text(size=10), axis.title=element_text(size=12,face="bold"))
+plot_grid(p_test350, p_test65)
+```
+
+***
+
+## K = 3
+```{r, echo = FALSE, warning = FALSE}
+plot350_0 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn3_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_0 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn3_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_0, plot65_0, align = "h")
+rmse_350_3 = as.character(round(rmse_350_3))
+rmse_65_3 = as.character(round(rmse_65_3))
+```
+
+The RMSE for 350 at k = 3 is `r rmse_350_3`. 
+
+The RMSE for 65 at k = 3 is `r rmse_65_3`.
+
+*** 
+
+## K = 5
+```{r, echo =FALSE, warning = FALSE}
+plot350_1 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn5_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_1 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn5_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_1, plot65_1, align = "h")
+rmse_350_5 = as.character(round(rmse_350_5))
+rmse_65_5= as.character(round(rmse_65_5))
+```
+
+The RMSE for 350 at k = 5 is `r rmse_350_5`. 
+
+The RMSE for 65 at k = 5 is `r rmse_65_5`.
+
+***
+
+## K = 10
+
+```{r, echo = FALSE, warning = FALSE}
+plot350_2 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn10_350), color='red') + labs(title="S Class 350 ")+ theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_2 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn10_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_2, plot65_2, align = "h")
+rmse_350_10 = as.character(round(rmse_350_10))
+rmse_65_10 = as.character(round(rmse_65_10))
+```
+
+The RMSE for 350 at k = 10 is `r rmse_350_10`.
+
+The RMSE for 65 at k = 10 is `r rmse_65_10`.
+
+***
+
+## K = 20
+
+```{r, echo = FALSE, warning = FALSE}
+plot350_3 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn20_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_3 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn20_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_3, plot65_3, align="h")
+rmse_350_20 = as.character(round(rmse_350_20))
+rmse_65_20 = as.character(round(rmse_65_20))
+```
+
+The RMSE for 350 at k = 20 is `r rmse_350_20`.
+
+The RMSE for 65 at k = 20 is `r rmse_65_20`.
+
+***
+
+## K = 30
+```{r, echo = FALSE, warning = FALSE}
+plot350_30 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn30_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_30 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn30_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_30, plot65_30, align = "h")
+rmse_350_30 = as.character(round(rmse_350_30))
+rmse_65_30 = as.character(round(rmse_65_30))
+```
+
+The RMSE for 350 at k = 30 is `r rmse_350_30`.
+
+The RMSE for 65 at k = 30 is `r rmse_65_30`.
+
+***
+
+## K = 40
+```{r, echo = FALSE, warning = FALSE}
+plot350_40 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn40_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_40 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn40_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_40, plot65_40, align = "h")
+rmse_350_40 = as.character(round(rmse_350_40))
+rmse_65_40 = as.character(round(rmse_65_40))
+```
+
+The RMSE for 350 at k = 40 is `r rmse_350_40`.
+
+The RMSE for 65 at k = 40 is `r rmse_65_40`.
+
+***
+
+## K = 60
+```{r, echo = FALSE, warning = FALSE}
+plot350_60 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn60_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_60 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn60_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_60, plot65_60, align = "h")
+rmse_350_60 = as.character(round(rmse_350_60))
+rmse_65_60 = as.character(round(rmse_65_60))
+```
+
+The RMSE for 350 at k = 60 is `r rmse_350_60`.
+
+The RMSE for 65 at k = 60 is `r rmse_65_60`.
+
+***
+
+## K = 80
+```{r, echo = FALSE, warning = FALSE}
+plot350_80 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn80_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_80 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn80_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_80, plot65_80, align = "h")
+rmse_350_80 = as.character(round(rmse_350_80))
+rmse_65_80 = as.character(round(rmse_65_80))
+```
+
+The RMSE for 350 at k = 80 is `r rmse_350_80`.
+
+The RMSE for 65 at k = 80 is `r rmse_65_80`.
+
+***
+
+## K = 100
+```{r, echo = FALSE, warning = FALSE}
+plot350_100 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn100_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_100 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn100_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_100, plot65_100, align = "h")
+rmse_350_100 = as.character(round(rmse_350_100))
+rmse_65_100 = as.character(round(rmse_65_100))
+```
+
+The RMSE for 350 at k = 100 is `r rmse_350_100`.
+
+The RMSE for 65 at k = 100 is `r rmse_65_100`.
+
+***
+
+## K = 150
+```{r, echo = FALSE, warning = FALSE}
+plot350_150 = p_test350 + geom_path(aes(x = mileage, y = ypred_knn150_350), color='red') + labs(title="S Class 350 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot65_150 = p_test65 + geom_path(aes(x = mileage, y = ypred_knn150_65), color='red') + labs(title="S Class AMG 65 ") + theme(plot.title = element_text(size=16, face = "bold")) +theme(axis.text=element_text(size=10),
+        axis.title=element_text(size=12,face="bold"))
+plot_grid(plot350_150, plot65_150, align = "h")
+rmse_350_150 = as.character(round(rmse_350_150))
+rmse_65_150 = as.character(round(rmse_65_150))
+```
+
+The RMSE for 350 at k = 150 is `r rmse_350_150`.
+
+The RMSE for 65 at k = 150 is `r rmse_65_150`.
+
+The trim that results in a higher optimal value of K is the S Class 350, at K = 60. The S Class AMG 65, on the other hand, has an optimal value of K = 40. There is more variance in price across different mileage amounts in the S Class AMG 65 trim than the S Class 350 trim, creating a higher RMSE as the value of K increases. Since the variance for the S Class 350 is smaller, the “nearest neighbors” being used to build a predictive model for price are closer to one another, creating a lower RMSE and higher optimal value of K than the S Class AMG 65 trim. In addition, there are more observations for the S Class 350, making it be able to handle a greater amount of "neighbors" while remaining accurate.
