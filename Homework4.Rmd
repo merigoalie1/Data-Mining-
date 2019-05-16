@@ -1,0 +1,369 @@
+---
+title: "Homework 4"
+author: "Carys Quezada, Devin Steinhauser, Kaydee Hartmann, & Meri Oshrain"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    self_contained: no
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(mosaic)
+library(foreach)
+library(shiny)
+library(arules)
+library(arulesViz)
+library(LICORS)
+library(ggplot2)
+library(plotly)
+library(ISLR)
+library(corrplot)
+library(ggdendro)
+library(ape)
+library(factoextra)
+library(plyr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clustering and PCA
+## PCA
+We first try PCA on the 11 chemical properties to determine wine color.
+```{r, set-options, echo=FALSE, cache=FALSE}
+options(width=110)
+wine <- read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/wine.csv")
+## PCA
+X = wine[,1:11]
+pcX = prcomp(X, scale.=TRUE)
+loadingsX = pcX$rotation
+scoresX = pcX$x
+# how are the principal components related to the original variables?
+# top/bottom words associated with each components 
+o1X = order(loadingsX[,1], decreasing=TRUE)
+comp1top = colnames(X)[head(o1X,3)]
+comp1bottom = colnames(X)[tail(o1X,3)]
+comp1top1 = str_replace_all(comp1top[1], "\\.", " ")
+comp1top2 = str_replace_all(comp1top[2], "\\.", " ")
+comp1top3 = str_replace_all(comp1top[3], "\\.", " ")
+comp1bottom1 = str_replace_all(comp1bottom[1], "\\.", " ")
+comp1bottom2 = str_replace_all(comp1bottom[2], "\\.", " ")
+comp1bottom3 = str_replace_all(comp1bottom[3], "\\.", " ")
+o2X = order(loadingsX[,2], decreasing=TRUE)
+comp2top = colnames(X)[head(o2X,3)]
+comp2bottom = colnames(X)[tail(o2X,3)]
+comp2top1 = str_replace_all(comp2top[1], "\\.", " ")
+comp2top2 = str_replace_all(comp2top[2], "\\.", " ")
+comp2top3 = str_replace_all(comp2top[3], "\\.", " ")
+comp2bottom1 = str_replace_all(comp2bottom[1], "\\.", " ")
+comp2bottom2 = str_replace_all(comp2bottom[2], "\\.", " ")
+comp2bottom3 = str_replace_all(comp2bottom[3], "\\.", " ")
+```
+
+We can see the importance of the first two components in the output below:
+
+```{r}
+summary(pcX)
+```
+While looking at the "Proportion of Variance" row, we see that the first two components account for 50.2% of the variation. If we add in component 3, we would account for 64.4% of variation. After component 3, including other components would not change to Proportion of Variance by a great amount.
+
+The plot below shows the relationship between the first and second components:
+```{r}
+# Question 1: where do the individual points end up in PC space?
+renderPlotly(qplot(scoresX[,1], scoresX[,2], color=wine$color, xlab='Component 1', ylab='Component 2') + scale_color_manual(values=c("maroon", "yellow"))  + labs(title = "PCA for Wine Color", colour = "Wine Color") + theme(plot.title = element_text(size = 14)))
+```
+The first component is shown on the x-axis. The three variables that are most positively associated with the first component are `r comp1top1`, `r comp1top2`,  and `r comp1top3`. The three variables most negatively associated with the first component are `r comp1bottom1`, `r comp1bottom2`,  and `r comp1bottom3`. The second component is shown on the y-axis. The three variables that are most positively associated with the second component are `r comp2top1`, `r comp2top2`,  and `r comp2top3`. The three variables most negatively associated with the second component are `r comp2bottom1`, `r comp2bottom2`,  and `r comp2bottom3`.
+
+Red wines are associated with the negative values of the first component and therefore correspond more with `r comp1bottom1`, `r comp1bottom2`,  and `r comp1bottom3`. Some white wines are associated with negative values of the first component, too, but majority are associated with positive values.  
+
+```{r}
+#
+#
+#
+```
+## Clustering 
+Next, we use clustering. We first try to determine how many clusters to use. The answer lies in the "elbow" of the plot below:
+```{r, include = FALSE}
+## Clustering
+Z = wine[,1:11]
+Z = scale(Z, center=TRUE, scale=TRUE)
+k_grid = seq(2, 20, by=1)
+SSE_grid = foreach(k = k_grid, .combine='c') %do% {
+  cluster_k = kmeans(Z, k, nstart=50)
+  cluster_k$tot.withinss
+}
+```
+ 
+```{r}
+plot(k_grid, SSE_grid)
+# kmeans++
+clust1 = kmeanspp(Z, 7, nstart=25)
+cluster1 = which(clust1$cluster == 1)
+cluster2 = which(clust1$cluster == 2)
+cluster3 = which(clust1$cluster == 3)
+cluster4 = which(clust1$cluster == 4)
+cluster5 = which(clust1$cluster == 5)
+cluster6 = which(clust1$cluster == 6)
+cluster7 = which(clust1$cluster == 7)
+dfcluster1 = wine[cluster1,]
+dfcluster2 = wine[cluster2,]
+dfcluster3 = wine[cluster3,]
+dfcluster4 = wine[cluster4,]
+dfcluster5 = wine[cluster5,]
+dfcluster6 = wine[cluster6,]
+dfcluster7 = wine[cluster7,]
+dfcluster1 = transform(dfcluster1, qualitys = as.factor(quality))
+dfcluster2 = transform(dfcluster2, qualitys = as.factor(quality))
+dfcluster3 = transform(dfcluster3, qualitys = as.factor(quality))
+dfcluster4 = transform(dfcluster4, qualitys = as.factor(quality))
+dfcluster5 = transform(dfcluster5, qualitys = as.factor(quality))
+dfcluster6 = transform(dfcluster6, qualitys = as.factor(quality))
+dfcluster7 = transform(dfcluster7, qualitys = as.factor(quality))
+sumclust1 = summary(dfcluster1$color)
+sumclust2 = summary(dfcluster2$color)
+sumclust3 = summary(dfcluster3$color)
+sumclust4 = summary(dfcluster4$color)
+sumclust5 = summary(dfcluster5$color)
+sumclust6 = summary(dfcluster6$color)
+sumclust7 = summary(dfcluster7$color)
+```
+The graph shows that values between 5 and 10 should be adequate.
+
+We continue using kmeans++ with 7 clusters:
+```{r}
+renderPlotly(qplot(total.sulfur.dioxide,volatile.acidity, data=wine, color=factor(clust1$cluster))  + labs(title = "Kmeans++ Cluster Plot", colour = "Cluster", x = "Total Sulfur Dioxide", y = "Volatile Acidity") + theme(plot.title = element_text(size = 14)))
+```
+
+```{r}
+fracclust1 = round(sumclust1[[1]]/ (sumclust1[[1]] + sumclust1[[2]]),3)
+fracclust2 = round(sumclust2[[1]]/ (sumclust2[[1]] + sumclust2[[2]]),3)
+fracclust3 = round(sumclust3[[1]]/ (sumclust3[[1]] + sumclust3[[2]]),3)
+fracclust4 = round(sumclust4[[1]]/ (sumclust4[[1]] + sumclust4[[2]]),3)
+fracclust5 = round(sumclust5[[1]]/ (sumclust5[[1]] + sumclust5[[2]]),3)
+fracclust6 = round(sumclust6[[1]]/ (sumclust6[[1]] + sumclust6[[2]]),3)
+fracclust7 = round(sumclust7[[1]]/ (sumclust7[[1]] + sumclust7[[2]]),3)
+fraclist = c(fracclust1, fracclust2, fracclust3, fracclust4, fracclust5, fracclust6, fracclust7)
+redlist = which(fraclist >= .5)
+first = redlist[1]
+second = redlist[2]
+third = redlist[3]
+```
+Fraction of red wines in each cluster: 
+
+Cluster 1 = `r fracclust1`
+
+Cluster 2 = `r fracclust2`
+
+Cluster 3 = `r fracclust3`
+
+Cluster 4 = `r fracclust4`
+
+Cluster 5 = `r fracclust5`
+
+Cluster 6 = `r fracclust6`
+
+Cluster 7 = `r fracclust7`
+
+Therefore, clusters that have majority red wine are `r first`, `r second`, and `r third`, while the others contain more white wine.  
+```{r}
+```
+## Technique and Quality
+
+PCA is used to compress features of a dataset, while clustering is used to compress data points into groups or "clusters." In regards to this dataset, PCA seems to be easily capable of distinguishing the reds from the whites. This is because it compresses all of the properties to determine color which is helpful since some of the variables used can be redundant or have relationships with each other, such as fixed acidity, volatile acidity, and pH since acidity level can be show by the value of pH. The regression results below show how volatile acidity and fixed acidity have a significant relationship with pH: 
+```{r}
+#library(Hmisc)
+#rcorr(as.matrix(X))
+lmpH = lm(pH ~ volatile.acidity + fixed.acidity, data = wine)
+summary(lmpH)
+```
+The relationship between total sulfur dioxide and total sulfur dioxide is also statistically significant. There is a very high r-squared considering there is only one variable used to predict total sulfur dioxide: 
+```{r}
+lmsulf = lm(total.sulfur.dioxide ~ free.sulfur.dioxide, data = wine)
+summary(lmsulf)
+```
+By looking at the percentage of red wines in each cluster, it seems that Kmeans++ does do a good job at distinguishing reds from whites. Unfortunately, in the graph nearly all the clusters overlap and aren't as visually distinguishable. But while looking at the PCA plot, we can see that the red and white wine data points are grouped together pretty well into their respective groups. 
+
+
+Next we explore using PCA to see if it can sort higher quality from lower quality. The graph below shows all the qualities levels. They vary from 3-9 and are hard to distinguish.
+```{r}
+##  Does this technique also seem capable of sorting the higher from the lower quality wines? (Uses PCA)
+# all qualities 
+renderPlotly(qplot(scoresX[,1], scoresX[,2], color=wine$quality, xlab='Component 1', ylab='Component 2')  + labs(title = "PCA for Wine Quality", colour = "Quality") + theme(plot.title = element_text(size = 14)))
+```
+We filtered through to keep lower (3 and 4) and higher (8 and 9) qualities to see if it had better results at determining the difference. The graph below shows the results:
+```{r}
+# just low and high: still hard to sort quality 
+Z1 = wine %>% 
+  filter(quality == 3 | quality == 4 | quality == 8 | quality == 9) 
+Z1$quality = as.character(Z1$quality)
+Z2 = Z1[,1:11]
+pcZ = prcomp(Z2, scale.=TRUE, rank = 2)
+loadingsZ = pcZ$rotation
+scoresZ = pcZ$x
+renderPlotly(qplot(scoresZ[,1], scoresZ[,2], color=Z1$quality, xlab='Component 1', ylab='Component 2')  + labs(title = "PCA for Low and High Wine Quality ", colour = "Quality ") + theme(plot.title = element_text(size = 14)))
+```
+As you can see, it is still difficult to distinguish especially since the data points involved are on differing sides of the quality scale.
+
+# Market Segmentation
+
+
+```{r}
+social <- read.csv("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/social_marketing.csv", header=TRUE, row.names=1)
+newsocial <- t(social)
+#head(social)
+M<-cor(social)
+#head(round(M,2))
+```
+
+Below is a correlation plot of each social category.  The darker the blue, the more correlated.  For example, Current_events and News have a darker blue, with a correlation of about .6.  Some other highly correlated categories are personal_fitness and health_nutrition, cooking and fashion, religion and parenting and travel and politics.
+
+```{r}
+corrplot(M, type="upper", order="hclust", tl.col="black")
+```
+
+Below is the dendrogram for our data using euclidean distance.  We did not use manhattan distance becuase it would give us the smallest grid distance, not give us the shortest distance between points.  We can see here specific clusters.  For example, chatter is by itself, health_nutrition and personal_fitness and tv_film and art are clustered together which makes sense.  An odd cluster is current_events and shopping.  Some of the correlation groupings are also similarly clustered like travel and politics, health_nutrition and personal_fitness and religion and family.
+
+```{r}
+dd <- dist(scale(newsocial), method = "euclidean")
+hc <- hclust(dd, method="ward.D2")
+ggdendrogram(hc) + labs(title= "Dendrogram Using Euclidean Distance") 
+```
+
+Below is a heirachiary tree with color coded boxes to represent 10 groupings (k=10) and 15 groupings (k=15).  As we increase K, we will have more clusters and more market segmentation.  More market segmentation may be good for direct advertisement, but not as good for recommendations.  Smaller K values contain more groups with 2 categories that are related.  
+
+For example, with k=10 health_nutritution and personal_fitness were grouped together, but with k=15 are now clustered separetly.  It doesn't make sense that potential advertisiments or reccomendations would now be targeted differently for these two categories.  They both should be targeted together. 
+
+A larger interesing cluster would be the Sports_fandom, religion, food, family, parenting and school cluster. This grouping could be target for advertizements and recommendations becuase the cluster contains similiar categories.
+
+```{r}
+plot(hc, cex = 0.6)
+rect.hclust(hc, k=10, border = 2:5)
+plot(hc, cex = 0.6) 
+rect.hclust(hc, k=15, border = 2:5)
+```
+
+We included the frequency counts of the chatter,spam and uncategorized categories so potential clients and advertisers could create better marketing strategies around these counts and could possily work around these categories or spend less money on them.  
+
+Below is the frequency count for Spam.  As you can see the fequency of Spam tweets is low, 7833 users have zero spam.  Therefore if we took out Spam, not a lot of user social information would be lost.
+```{r}
+count(social, 'spam') 
+```
+Below is the frequency count for Uncategorized.  As you can see the frequency of Uncategoized tweets is 3548 which is a high proportion of users. Therefore  we should not remove this social category
+```{r}
+count(social, 'uncategorized')
+```
+Below is the frequency count for Chatter.  As you can see the frequency Chatter is high, only 465 users have zero chatter.  Therefore we should not remove this social category because we would lose a lot of user social information
+```{r}
+count(social, 'chatter')
+```
+
+Below is a fan with color coded clusters.  Here we used 7 and 10 clusters.  We can see market segmentation more clearly here as we increase the number of clusters.  
+
+With 7 clusters, the only group by itself is chatter, while with 10 clusters there are 3 groups by themselves: chatter, photo sharing and cooking.  With more clusters, we can target an audience more for direct ads or reccomendations. 
+
+
+```{r}
+clus3 = cutree(hc, 3)
+clus4 = cutree(hc, 4)
+clus5 = cutree(hc, 5)
+clus6 = cutree(hc, 6)
+clus7 = cutree(hc, 7)
+clus8 = cutree(hc, 8)
+clus10 = cutree(hc, 10)
+colors = c("red", "darkblue", "darkgreen", "purple", "orange", "pink", "lightblue")
+plot(as.phylo(hc), type = "fan", tip.color = colors[clus7],
+     label.offset = 1, cex = 0.7)
+colors = c("red", "darkblue", "darkgreen", "purple", "orange", "pink", "lightblue", "lightgreen", "grey", "black")
+plot(as.phylo(hc), type = "fan", tip.color = colors[clus10],
+     label.offset = 1, cex = 0.7)
+```
+
+The plot below shows 4 distinct groupings: Chatter, health_nutritution and personal_fitness, photo_sharing and cooking and the remaining categories. This plot shows the "closeness" of each cluster grouping.  The green group, while it contains many categories, they are all relatively "close" to eachother and clustered around the -25-+25 on both axis.  The red chatter category is very far from all other variables, which is good since we would not want to be advertising towards chatter.  The blue and purple variable categories are close to eachother and would be good for potential similar advertisments, likewise with the green category. These different baskets offer three markets segments to advertise to. 
+```{r}
+fviz_cluster(list(data = newsocial, cluster=clus4)) ##not sure what to name the axis and title for this plot
+```
+
+# Association Rules for Grocery Purchases
+
+
+```{r}
+groceries <- read.transactions("https://raw.githubusercontent.com/jgscott/ECO395M/master/data/groceries.txt", sep=',') 
+library(arules)
+library(arulesViz)
+```
+
+Before mining association rules between grocery items, it may be useful to first view the most frequently purchased items to gain an idea of potential relationships between common variables.
+
+Below is a visualization of the top 10 most frequently purchased items:
+```{r}
+itemFrequencyPlot(groceries, col="steelblue", main='Top 10 Most Frequently Purchased Items', topN=10)
+```
+
+A useful method for mining association rules is applying the Apriori Principle, which is constructed below. 
+
+```{r, warning = FALSE}
+rules <- apriori(data=groceries, parameter=list(support=0.01, confidence=0.1))
+summary(rules)
+plotly_arules(rules, measure=c("support", "lift"), shading="confidence", jitter=0) %>% layout(title = "Generated Rules Plot")
+```
+
+You can set support and confidence thresholds to the dataset depending on certain measurements you wish to meet. After plotting the generated rules, it's shown that a majority of the baskets have a support level of approximately 0.01 and a lower confidence level estimated around 0.1-0.2. Thus, those are the thresholds that will continued to be used at the moment.
+
+Click the icon below to view our Gephi graph of the generated rules. The size of each node represents the popularity of each item.
+```{r pressure, echo=FALSE, fig.cap=" ", out.width = '100%'}
+knitr::include_graphics("GephiGraph.pdf")
+```
+
+Sorting these generated rules by lift yields the following:
+```{r}
+arules::inspect(sort(rules, by='lift', decreasing=T)[1:10])
+```
+The basket with the highest lift value is that of whole milk, yogurt, and curd. This makes intuitive sense, as they are all dairy products and near one another in the grocery store. Citrus fruit, other vegetables, and root vegetables are a similar example as they are all in the produce section.
+
+Calculating the frequent itemsets is still computationally expensive, so it will be helpful to reduce the number of candidates by pruning out infrequent baskets. Below are several examples of inspecting the rules in order to view these association rules for the shopping baskets. At an attempt of finding more interesting relationships, the support and confidence thresholds have been lowered to 0.001 to 0.01 for the following rules. While these thresholds are lowered, the relationships below show higher lift values, showing that the purchased items happen more often than would be expected.
+
+```{r}
+bakingrules <-apriori(data=groceries, parameter=list (supp=0.001, conf=0.01), appearance=list(lhs=c("baking powder", "sugar")))
+arules::inspect(sort(bakingrules, by='lift', decreasing=T)[1:10])
+bakingrules2 <-head(bakingrules, n=10, by="lift")
+plot(bakingrules2, method="graph", engine="htmlwidget")
+```
+
+Here, it was tested what customers decided to buy after purchasing baking powder and sugar. These relationships show that other baking items were purchased, the only exception being rice. This is a very straightforward finding, and the lift values are above 3.8 for each basket.
+```{r}
+liquorrules <-apriori(data=groceries, parameter=list (supp=0.001, conf=0.01), appearance = list(lhs="liquor"))
+arules::inspect(sort(liquorrules, by='lift', decreasing=T)[1:10])
+liquorrules2 <-head(liquorrules, n=10, by="lift")
+plot(liquorrules2, method="graph", engine="htmlwidget")
+```
+
+This is similar to the baking materials example above but with liquor. The relationships make sense, as red/blush wine, bottled beer, shopping bags, and soda could all be considered complements and were purchased after liquor. In addition, the lift values are all at least one.
+
+```{r}
+popcornrules <-apriori(data=groceries, parameter=list(supp=0.001, conf=0.01), appearance=list(rhs="popcorn"))
+arules::inspect(sort(popcornrules, by='lift', decreasing=T)[1:10])
+popcornrules2 <-head(popcornrules, n=10, by="lift")
+plot(popcornrules2, method="graph", engine="htmlwidget")
+```
+
+This visualizes what customers purchased before buying popcorn. For the most part, this is very straightforward. Salty snacks, soda, and bottled beer all have lift values above one. The other items, including root vegetables, sausage, and tropical fruit, aren't generally considered direct complements to popcorn.
+```{r}
+frozenpotatorules <-apriori(data=groceries, parameter=list (supp=0.001, conf=0.01), appearance=list(lhs="frozen potato products"))
+arules::inspect(sort(frozenpotatorules, by='lift', decreasing=T)[1:10])
+frozenpotatorules2 <-head(frozenpotatorules, n=10, by="lift")
+plot(frozenpotatorules2, method="graph", engine="htmlwidget")
+```
+
+Similar to the popcorn rules, these results are slightly less clear-cut. For instance, white bread, frankfurter, frozen vegetables, and pork could be seen as complements to frozen potatoes. Chocolate and fruit and vegetable juice are items that aren't usually associated with frozen potatoes, though their occurrence is more frequent than would be expected given their lift values.
+
+```{r}
+petcarerules <-apriori(data=groceries, parameter=list(supp=0.001, conf=0.01), appearance=list(lhs="pet care"))
+arules::inspect(sort(petcarerules, by='lift', decreasing=T)[1:10])
+petcarerules2 <-head(petcarerules, n=10, by="lift")
+plot(petcarerules2, method="graph", engine="htmlwidget")
+```
+
+This is most likely the least intuitive out of the generated association rules. Besides cat food, which has the highest lift value of the variables, the other relationships appear random. This hints that pet care will be purchased regardless of other needed items. For pet owners, this makes sense.
